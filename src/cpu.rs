@@ -13,7 +13,7 @@ pub struct Cpu {
     p: Status,
     d: u16,
     db: u8,
-    pd: u8,
+    pb: u8,
     e: bool,
 }
 
@@ -28,7 +28,7 @@ impl Default for Cpu {
             p: Status::default(),
             d: 0,
             db: 0,
-            pd: 0,
+            pb: 0,
             e: true,
         }
     }
@@ -95,11 +95,113 @@ impl Value for u16 {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum WarpMode {
+    Warp8bit,
+    Warp16bit,
+    NoWarp,
+}
+struct WarpAddress {
+    addr: u32,
+    mode: WarpMode,
+}
+
+impl WarpAddress {
+    fn unwrap(&self) -> u32 {
+        self.addr
+    }
+
+    fn offset(&self, offset: u16) -> Self {
+        let addr = match self.mode {
+            WarpMode::Warp8bit => {
+                self.addr & 0xFFFF00 | (self.addr as u8).wrapping_add(offset as u8) as u32
+            }
+            WarpMode::Warp16bit => {
+                self.addr & 0xFF0000 | (self.addr as u16).wrapping_add(offset) as u32
+            }
+            WarpMode::NoWarp => (self.addr + offset as u32) & 0xFFFFF,
+        };
+        WarpAddress {
+            addr,
+            mode: self.mode,
+        }
+    }
+
+    fn read_8(&self, context: &impl Context) -> u8 {
+        context.bus_read(self.unwrap())
+    }
+
+    fn read_16(&self, context: &impl Context) -> u16 {
+        let lo = context.bus_read(self.unwrap()) as u16;
+        let hi = context.bus_read(self.offset(1).unwrap()) as u16;
+        hi << 8 | lo
+    }
+
+    fn read_24(&self, context: &impl Context) -> u32 {
+        let lo = context.bus_read(self.unwrap()) as u32;
+        let hi = context.bus_read(self.offset(1).unwrap()) as u32;
+        let bank = context.bus_read(self.offset(2).unwrap()) as u32;
+        bank << 16 | hi << 8 | lo
+    }
+
+    fn write8(&self, context: &mut impl Context, data: u8) {
+        context.bus_write(self.unwrap(), data);
+    }
+
+    fn write16(&self, context: &mut impl Context, data: u16) {
+        context.bus_write(self.unwrap(), data as u8);
+        context.bus_write(self.offset(1).unwrap(), (data >> 8) as u8);
+    }
+}
+
+enum AddressingMode {
+    Immediate,
+    Absolute,
+    AbsoluteLong,
+    Direct,
+    Accumulator,
+    Implied,
+    DirectIndirectIndexedY,
+    DirectIndirectIndexedLongY,
+    DirectIndexedIndirect,
+    DirectX,
+    DirectY,
+    AbsoluteX,
+    AbsoluteLongX,
+    AbsoluteY,
+    Relative,
+    RelativeLong,
+    AbsoluteIndirect,
+    DirectIndirect,
+    DirectIndirectLong,
+    AbsoluteIndexedIndirect,
+    Stack,
+    StackRelative,
+    StackRelativeIndirectIndexed,
+    BlockMove,
+}
+
 impl Cpu {
-    fn fetch_8(&mut self, context: &mut impl Context) -> u8 {
-        let data = context.bus_read(self.pc);
+    fn get_pc24(&self) -> u32 {
+        (self.pb as u32) << 16 | self.pc as u32
+    }
+    fn fetch_8(&mut self, ctx: &mut impl Context) -> u8 {
+        let data = ctx.bus_read(self.get_pc24());
         self.pc = self.pc.wrapping_add(1);
         data
+    }
+
+    fn fetch_16(&mut self, ctx: &mut impl Context) -> u16 {
+        let lo = self.fetch_8(ctx) as u16;
+        let hi = self.fetch_8(ctx) as u16;
+        hi << 8 | lo
+    }
+
+    fn fetch_24(&mut self, ctx: &mut impl Context) -> u32 {
+        let lo = self.fetch_8(ctx) as u32;
+        let hi = self.fetch_8(ctx) as u32;
+        let bank = self.fetch_8(ctx) as u32;
+        bank << 16 | hi << 8 | lo
     }
 
     fn set_n(&mut self, data: impl Value) {
@@ -113,6 +215,251 @@ impl Cpu {
     fn set_nz(&mut self, data: impl Value) {
         self.set_n(data);
         self.set_z(data);
+    }
+
+    fn is_wrap8(&self) -> bool {
+        self.e && (self.d & 0xFF) == 0
+    }
+
+    fn get_warp_address(
+        &mut self,
+        adressing_mode: AddressingMode,
+        ctx: &mut impl Context,
+    ) -> WarpAddress {
+        match adressing_mode {
+            //  AddressingMode::Immediate は別で扱う？
+            AddressingMode::Absolute => {
+                let addr = (self.pb as u32) << 16 | self.fetch_16(ctx) as u32;
+                WarpAddress {
+                    addr,
+                    mode: WarpMode::NoWarp,
+                }
+            }
+            AddressingMode::AbsoluteLong => {
+                let addr = self.fetch_24(ctx);
+                WarpAddress {
+                    addr,
+                    mode: WarpMode::NoWarp,
+                }
+            }
+            AddressingMode::Direct => {
+                let offset = self.fetch_8(ctx) as u16;
+                if self.is_wrap8() {
+                    WarpAddress {
+                        addr: (self.d & 0xFF00 | offset) as u32,
+                        mode: WarpMode::Warp8bit,
+                    }
+                } else {
+                    if self.d & 0xFF != 0 {
+                        ctx.elapse(CPU_CYCLE);
+                    }
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset)
+                }
+            }
+            // Accumulator
+            // Implied
+            AddressingMode::DirectIndirectIndexedY => {
+                let offset = self.fetch_8(ctx);
+                let direct_addr = if self.is_wrap8() {
+                    WarpAddress {
+                        addr: (self.d & 0xFF00 | offset as u16) as u32,
+                        mode: WarpMode::Warp8bit,
+                    }
+                    .read_16(ctx)
+                } else {
+                    if self.d & 0xFF != 0 {
+                        ctx.elapse(CPU_CYCLE);
+                    }
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset as u16)
+                    .read_16(ctx)
+                };
+                WarpAddress {
+                    addr: (self.db as u32) << 16 | direct_addr as u32,
+                    mode: WarpMode::NoWarp,
+                }
+                .offset(self.y)
+            }
+            AddressingMode::DirectIndirectIndexedLongY => {
+                let offset = self.fetch_8(ctx);
+                let direct_addr = if self.is_wrap8() {
+                    WarpAddress {
+                        addr: (self.d & 0xFF00 | offset as u16) as u32,
+                        mode: WarpMode::Warp8bit,
+                    }
+                    .read_24(ctx)
+                } else {
+                    if self.d & 0xFF != 0 {
+                        ctx.elapse(CPU_CYCLE);
+                    }
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset as u16)
+                    .read_24(ctx)
+                };
+                WarpAddress {
+                    addr: direct_addr,
+                    mode: WarpMode::NoWarp,
+                }
+                .offset(self.y)
+            }
+            AddressingMode::DirectIndexedIndirect => {
+                let offset = self.fetch_8(ctx);
+                if self.d & 0xFF != 0 {
+                    ctx.elapse(CPU_CYCLE);
+                }
+                let mid_addr = if self.is_wrap8() {
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp8bit,
+                    }
+                    .offset(offset as u16)
+                    .offset(self.x)
+                    .read_16(ctx)
+                } else {
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset as u16)
+                    .offset(self.x)
+                    .read_16(ctx)
+                };
+                WarpAddress {
+                    addr: (self.db as u32) << 16 | mid_addr as u32,
+                    mode: WarpMode::NoWarp,
+                }
+            }
+            AddressingMode::DirectX => {
+                let offset = self.fetch_8(ctx) as u16;
+                if self.d & 0xFF != 0 {
+                    ctx.elapse(CPU_CYCLE);
+                }
+                if self.is_wrap8() {
+                    WarpAddress {
+                        addr: (self.d & 0xFF00 | offset) as u32,
+                        mode: WarpMode::Warp8bit,
+                    }
+                    .offset(self.x)
+                } else {
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset)
+                    .offset(self.x)
+                }
+            }
+            AddressingMode::DirectY => {
+                let offset = self.fetch_8(ctx) as u16;
+                if self.d & 0xFF != 0 {
+                    ctx.elapse(CPU_CYCLE);
+                }
+                if self.is_wrap8() {
+                    WarpAddress {
+                        addr: (self.d & 0xFF00 | offset) as u32,
+                        mode: WarpMode::Warp8bit,
+                    }
+                    .offset(self.y)
+                } else {
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset)
+                    .offset(self.y)
+                }
+            }
+            AddressingMode::AbsoluteX => {
+                let addr = self.fetch_16(ctx);
+                WarpAddress {
+                    addr: (self.db as u32) << 16 | addr as u32,
+                    mode: WarpMode::NoWarp,
+                }
+                .offset(self.x)
+            }
+            AddressingMode::AbsoluteY => {
+                let addr = self.fetch_16(ctx);
+                WarpAddress {
+                    addr: (self.db as u32) << 16 | addr as u32,
+                    mode: WarpMode::NoWarp,
+                }
+                .offset(self.y)
+            }
+            // Relative
+            // RelativeLong
+            // AbsoluteIndirect
+            AddressingMode::DirectIndirect => {
+                let offset = self.fetch_8(ctx) as u16;
+                if self.d & 0xFF != 0 {
+                    ctx.elapse(CPU_CYCLE);
+                }
+                let addr = WarpAddress {
+                    addr: self.d as u32,
+                    mode: WarpMode::Warp16bit,
+                }
+                .offset(offset)
+                .read_16(ctx);
+
+                WarpAddress {
+                    addr: (self.db as u32) << 16 | addr as u32,
+                    mode: WarpMode::NoWarp,
+                }
+            }
+            AddressingMode::DirectIndirectLong => {
+                let offset = self.fetch_8(ctx) as u16;
+                if self.d & 0xFF != 0 {
+                    ctx.elapse(CPU_CYCLE);
+                }
+                let addr = WarpAddress {
+                    addr: self.d as u32,
+                    mode: WarpMode::Warp16bit,
+                }
+                .offset(offset)
+                .read_24(ctx);
+
+                WarpAddress {
+                    addr,
+                    mode: WarpMode::NoWarp,
+                }
+            }
+            // AbsoluteIndexedIndirect
+            // Stack
+            AddressingMode::StackRelative => {
+                let offset = self.fetch_8(ctx) as u16;
+                WarpAddress {
+                    addr: self.s as u32,
+                    mode: WarpMode::Warp16bit,
+                }
+                .offset(offset)
+            }
+            AddressingMode::StackRelativeIndirectIndexed => {
+                let offset = self.fetch_8(ctx) as u16;
+                ctx.elapse(CPU_CYCLE);
+                let addr = WarpAddress {
+                    addr: self.s as u32,
+                    mode: WarpMode::Warp16bit,
+                }
+                .offset(offset)
+                .read_16(ctx);
+                WarpAddress {
+                    addr: (self.db as u32) << 16 | addr as u32,
+                    mode: WarpMode::NoWarp,
+                }
+                .offset(self.y)
+            }
+            // BlockMove
+            _ => unimplemented!(),
+        }
     }
 
     fn excecute_instruction(&mut self, context: &mut impl Context) {
