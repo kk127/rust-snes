@@ -221,6 +221,10 @@ impl Cpu {
         self.e && (self.d & 0xFF) == 0
     }
 
+    fn is_a_register_8bit(&self) -> bool {
+        self.e || self.p.m
+    }
+
     fn get_warp_address(
         &mut self,
         adressing_mode: AddressingMode,
@@ -462,127 +466,168 @@ impl Cpu {
         }
     }
 
-    fn excecute_instruction(&mut self, context: &mut impl Context) {
-        let opcode = self.fetch_8(context);
+    fn excecute_instruction(&mut self, ctx: &mut impl Context) {
+        let opcode = self.fetch_8(ctx);
         match opcode {
-            0x1B => self.tcs(context),
+            0x1B => self.tcs(ctx),
 
-            0x3B => self.tsc(context),
+            0x3B => self.tsc(ctx),
 
-            0x5B => self.tcd(context),
+            0x5B => self.tcd(ctx),
 
-            0x7B => self.tdc(context),
+            0x7B => self.tdc(ctx),
 
-            0x8A => self.txa(context),
+            0x8A => self.txa(ctx),
 
-            0x98 => self.tya(context),
-            0x9A => self.txs(context),
-            0x9B => self.txy(context),
+            0x98 => self.tya(ctx),
+            0x9A => self.txs(ctx),
+            0x9B => self.txy(ctx),
 
-            0xA8 => self.tay(context),
-            0xAA => self.tax(context),
+            0xA1 => self.lda(ctx, AddressingMode::DirectIndexedIndirect),
+            0xA3 => self.lda(ctx, AddressingMode::StackRelative),
+            0xA5 => self.lda(ctx, AddressingMode::Direct),
+            0xA7 => self.lda(ctx, AddressingMode::DirectIndirectLong),
+            0xA8 => self.tay(ctx),
+            0xA9 => self.lda_imm(ctx),
+            0xAA => self.tax(ctx),
+            0xAD => self.lda(ctx, AddressingMode::Absolute),
+            0xAF => self.lda(ctx, AddressingMode::AbsoluteLong),
 
-            0xBA => self.tsx(context),
-            0xBB => self.tyx(context),
+            0xB1 => self.lda(ctx, AddressingMode::DirectIndirectIndexedY),
+            0xB2 => self.lda(ctx, AddressingMode::DirectIndirect),
+            0xB3 => self.lda(ctx, AddressingMode::StackRelativeIndirectIndexed),
+            0xB5 => self.lda(ctx, AddressingMode::DirectX),
+            0xB7 => self.lda(ctx, AddressingMode::DirectIndirectIndexedLongY),
+            0xB9 => self.lda(ctx, AddressingMode::AbsoluteY),
+            0xBA => self.tsx(ctx),
+            0xBB => self.tyx(ctx),
+            0xBD => self.lda(ctx, AddressingMode::AbsoluteX),
+            0xBF => self.lda(ctx, AddressingMode::AbsoluteLongX),
 
             _ => unreachable!(),
         }
     }
 
     // opcode: A8
-    fn tay(&mut self, context: &mut impl Context) {
+    fn tay(&mut self, ctx: &mut impl Context) {
         let data = if self.p.x { self.a & 0xFF } else { self.a };
         self.y = data;
         self.set_nz(data);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode: AA
-    fn tax(&mut self, context: &mut impl Context) {
+    fn tax(&mut self, ctx: &mut impl Context) {
         let data = if self.p.x { self.a & 0xFF } else { self.a };
         self.x = data;
         self.set_nz(data);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode BA
-    fn tsx(&mut self, context: &mut impl Context) {
+    fn tsx(&mut self, ctx: &mut impl Context) {
         let data = if self.p.x { self.s & 0xFF } else { self.s };
         self.x = data;
         self.set_nz(data);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 98
-    fn tya(&mut self, context: &mut impl Context) {
+    fn tya(&mut self, ctx: &mut impl Context) {
         let data = if self.p.m { self.y & 0xFF } else { self.y };
         self.a = data;
         self.set_nz(data);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 8A
-    fn txa(&mut self, context: &mut impl Context) {
+    fn txa(&mut self, ctx: &mut impl Context) {
         let data = if self.p.m { self.x & 0xFF } else { self.x };
         self.a = data;
         self.set_nz(data);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 9A
-    fn txs(&mut self, context: &mut impl Context) {
+    fn txs(&mut self, ctx: &mut impl Context) {
         if self.e {
             self.s = self.s & 0xFF00 | self.x & 0xFF;
         } else {
             self.s = self.x;
         }
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 9B
-    fn txy(&mut self, context: &mut impl Context) {
+    fn txy(&mut self, ctx: &mut impl Context) {
         let data = if self.p.x { self.x & 0xFF } else { self.x };
         self.y = data;
         self.set_nz(data);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode BB
-    fn tyx(&mut self, context: &mut impl Context) {
+    fn tyx(&mut self, ctx: &mut impl Context) {
         let data = if self.p.x { self.y & 0xFF } else { self.y };
         self.x = data;
         self.set_nz(data);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 7B
-    fn tdc(&mut self, context: &mut impl Context) {
+    fn tdc(&mut self, ctx: &mut impl Context) {
         self.a = self.d;
         self.set_nz(self.a);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 5B
-    fn tcd(&mut self, context: &mut impl Context) {
+    fn tcd(&mut self, ctx: &mut impl Context) {
         self.d = self.a;
         self.set_nz(self.d);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 3B
-    fn tsc(&mut self, context: &mut impl Context) {
+    fn tsc(&mut self, ctx: &mut impl Context) {
         self.a = self.s;
         self.set_nz(self.a);
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
     }
 
     // opcode 1B
-    fn tcs(&mut self, context: &mut impl Context) {
+    fn tcs(&mut self, ctx: &mut impl Context) {
         if self.e {
             self.s = self.s & 0xFF00 | self.a & 0xFF;
         } else {
             self.s = self.a;
         }
-        context.elapse(CPU_CYCLE);
+        ctx.elapse(CPU_CYCLE);
+    }
+
+    // opcode A9
+    fn lda_imm(&mut self, ctx: &mut impl Context) {
+        if self.is_a_register_8bit() {
+            let data = self.fetch_8(ctx);
+            self.set_nz(data);
+            self.a = data as u16;
+        } else {
+            let data = self.fetch_16(ctx);
+            self.set_nz(data);
+            self.a = data;
+        }
+    }
+
+    fn lda(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_a_register_8bit() {
+            let data = addr.read_8(ctx);
+            self.set_nz(data);
+            self.a = data as u16;
+        } else {
+            let data = addr.read_16(ctx);
+            self.set_nz(data);
+            self.a = data;
+        }
     }
 }
