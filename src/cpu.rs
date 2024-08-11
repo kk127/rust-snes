@@ -34,6 +34,7 @@ impl Default for Cpu {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 struct Status {
     c: bool,
     z: bool,
@@ -43,6 +44,36 @@ struct Status {
     m: bool,
     v: bool,
     n: bool,
+}
+
+impl From<u8> for Status {
+    fn from(data: u8) -> Self {
+        Status {
+            c: (data >> 7) & 1 == 1,
+            z: (data >> 6) & 1 == 1,
+            i: (data >> 5) & 1 == 1,
+            d: (data >> 4) & 1 == 1,
+            x: (data >> 3) & 1 == 1,
+            m: (data >> 2) & 1 == 1,
+            v: (data >> 1) & 1 == 1,
+            n: (data >> 0) & 1 == 1,
+        }
+    }
+}
+
+impl Into<u8> for Status {
+    fn into(self) -> u8 {
+        let mut data = 0;
+        data |= (self.c as u8) << 7;
+        data |= (self.z as u8) << 6;
+        data |= (self.i as u8) << 5;
+        data |= (self.d as u8) << 4;
+        data |= (self.x as u8) << 3;
+        data |= (self.m as u8) << 2;
+        data |= (self.v as u8) << 1;
+        data |= (self.n as u8) << 0;
+        data
+    }
 }
 
 impl Default for Status {
@@ -202,6 +233,35 @@ impl Cpu {
         let hi = self.fetch_8(ctx) as u32;
         let bank = self.fetch_8(ctx) as u32;
         bank << 16 | hi << 8 | lo
+    }
+
+    fn push_8(&mut self, ctx: &mut impl Context, data: u8) {
+        ctx.bus_write(self.s as u32, data);
+        if self.e {
+            self.s = self.s & 0xFF00 | (self.s as u8).wrapping_sub(1) as u16;
+        } else {
+            self.s = self.s.wrapping_sub(1);
+        }
+    }
+
+    fn push_16(&mut self, ctx: &mut impl Context, data: u16) {
+        self.push_8(ctx, (data >> 8) as u8);
+        self.push_8(ctx, data as u8);
+    }
+
+    fn pop_8(&mut self, ctx: &impl Context) -> u8 {
+        if self.e {
+            self.s = self.s & 0xFF00 | (self.s as u8).wrapping_add(1) as u16;
+        } else {
+            self.s = self.s.wrapping_add(1);
+        }
+        ctx.bus_read(self.s as u32)
+    }
+
+    fn pop_16(&mut self, ctx: &impl Context) -> u16 {
+        let lo = self.pop_8(ctx) as u16;
+        let hi = self.pop_8(ctx) as u16;
+        hi << 8 | lo
     }
 
     fn set_n(&mut self, data: impl Value) {
@@ -477,15 +537,28 @@ impl Cpu {
     fn excecute_instruction(&mut self, ctx: &mut impl Context) {
         let opcode = self.fetch_8(ctx);
         match opcode {
+            0x08 => self.php(ctx),
+            0x0B => self.phd(ctx),
+
             0x1B => self.tcs(ctx),
+
+            0x28 => self.plp(ctx),
+            0x2B => self.pld(ctx),
 
             0x3B => self.tsc(ctx),
 
+            0x48 => self.pha(ctx),
+            0x4B => self.phk(ctx),
+
+            0x5A => self.phy(ctx),
             0x5B => self.tcd(ctx),
 
+            0x62 => self.per(ctx),
             0x64 => self.stz(ctx, AddressingMode::Direct),
+            0x68 => self.pla(ctx),
 
             0x74 => self.stz(ctx, AddressingMode::DirectX),
+            0x7A => self.ply(ctx),
             0x7B => self.tdc(ctx),
 
             0x81 => self.sta(ctx, AddressingMode::DirectIndexedIndirect),
@@ -495,6 +568,7 @@ impl Cpu {
             0x86 => self.stx(ctx, AddressingMode::Direct),
             0x87 => self.sta(ctx, AddressingMode::DirectIndirectLong),
             0x8A => self.txa(ctx),
+            0x8B => self.phb(ctx),
             0x8C => self.sty(ctx, AddressingMode::Absolute),
             0x8D => self.sta(ctx, AddressingMode::Absolute),
             0x8E => self.stx(ctx, AddressingMode::Absolute),
@@ -528,6 +602,7 @@ impl Cpu {
             0xA8 => self.tay(ctx),
             0xA9 => self.lda_imm(ctx),
             0xAA => self.tax(ctx),
+            0xAB => self.plb(ctx),
             0xAC => self.ldy(ctx, AddressingMode::Absolute),
             0xAD => self.lda(ctx, AddressingMode::Absolute),
             0xAE => self.ldx(ctx, AddressingMode::Absolute),
@@ -548,6 +623,12 @@ impl Cpu {
             0xBD => self.lda(ctx, AddressingMode::AbsoluteX),
             0xBE => self.ldx(ctx, AddressingMode::AbsoluteY),
             0xBF => self.lda(ctx, AddressingMode::AbsoluteLongX),
+
+            0xDA => self.phx(ctx),
+            0xD4 => self.pei(ctx),
+
+            0xF4 => self.pea(ctx),
+            0xFA => self.plx(ctx),
 
             _ => unreachable!(),
         }
@@ -746,7 +827,7 @@ impl Cpu {
 
     fn stx(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
-        if self.is_memory_8bit() {
+        if self.is_xy_register_8bit() {
             addr.write8(ctx, self.x as u8);
         } else {
             addr.write16(ctx, self.x);
@@ -755,10 +836,121 @@ impl Cpu {
 
     fn sty(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
-        if self.is_memory_8bit() {
+        if self.is_xy_register_8bit() {
             addr.write8(ctx, self.y as u8);
         } else {
             addr.write16(ctx, self.y);
         }
+    }
+
+    fn pha(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_a_register_8bit() {
+            self.push_8(ctx, self.a as u8);
+        } else {
+            self.push_16(ctx, self.a);
+        }
+    }
+
+    fn phx(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_xy_register_8bit() {
+            self.push_8(ctx, self.x as u8);
+        } else {
+            self.push_16(ctx, self.x);
+        }
+    }
+
+    fn phy(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_xy_register_8bit() {
+            self.push_8(ctx, self.y as u8);
+        } else {
+            self.push_16(ctx, self.y);
+        }
+    }
+
+    fn php(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.push_8(ctx, self.p.into());
+    }
+
+    fn phb(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.push_8(ctx, self.db);
+    }
+
+    fn phk(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.push_8(ctx, self.pb);
+    }
+
+    fn phd(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.push_16(ctx, self.d);
+    }
+
+    fn pei(&mut self, ctx: &mut impl Context) {
+        let addr = self.get_warp_address(AddressingMode::Direct, ctx);
+        let data = addr.read_16(ctx);
+        self.push_16(ctx, data);
+    }
+
+    fn pea(&mut self, ctx: &mut impl Context) {
+        let data = self.fetch_16(ctx);
+        self.push_16(ctx, data);
+    }
+
+    fn per(&mut self, ctx: &mut impl Context) {
+        let disp = self.fetch_16(ctx);
+        ctx.elapse(CPU_CYCLE);
+        self.push_16(ctx, self.pc.wrapping_add(disp));
+    }
+
+    fn pla(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        if self.is_a_register_8bit() {
+            self.a = self.pop_8(ctx) as u16;
+        } else {
+            self.a = self.pop_16(ctx);
+        }
+        self.set_nz(self.a);
+    }
+
+    fn plx(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        if self.is_xy_register_8bit() {
+            self.x = self.pop_8(ctx) as u16;
+        } else {
+            self.x = self.pop_16(ctx);
+        }
+        self.set_nz(self.x);
+    }
+
+    fn ply(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        if self.is_xy_register_8bit() {
+            self.y = self.pop_8(ctx) as u16;
+        } else {
+            self.y = self.pop_16(ctx);
+        }
+        self.set_nz(self.y);
+    }
+
+    fn pld(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        self.d = self.pop_16(ctx);
+        self.set_nz(self.d);
+    }
+
+    fn plb(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        self.db = self.pop_8(ctx);
+        self.set_nz(self.db);
+    }
+
+    fn plp(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        self.p = self.pop_8(ctx).into();
     }
 }
