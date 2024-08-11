@@ -225,6 +225,10 @@ impl Cpu {
         self.e || self.p.m
     }
 
+    fn is_memory_8bit(&self) -> bool {
+        self.e || self.p.m
+    }
+
     fn is_xy_register_8bit(&self) -> bool {
         self.e || self.p.x
     }
@@ -479,13 +483,38 @@ impl Cpu {
 
             0x5B => self.tcd(ctx),
 
+            0x64 => self.stz(ctx, AddressingMode::Direct),
+
+            0x74 => self.stz(ctx, AddressingMode::DirectX),
             0x7B => self.tdc(ctx),
 
+            0x81 => self.sta(ctx, AddressingMode::DirectIndexedIndirect),
+            0x83 => self.lda(ctx, AddressingMode::StackRelative),
+            0x84 => self.sty(ctx, AddressingMode::Direct),
+            0x85 => self.sta(ctx, AddressingMode::Direct),
+            0x86 => self.stx(ctx, AddressingMode::Direct),
+            0x87 => self.sta(ctx, AddressingMode::DirectIndirectLong),
             0x8A => self.txa(ctx),
+            0x8C => self.sty(ctx, AddressingMode::Absolute),
+            0x8D => self.sta(ctx, AddressingMode::Absolute),
+            0x8E => self.stx(ctx, AddressingMode::Absolute),
+            0x8F => self.sta(ctx, AddressingMode::AbsoluteLong),
 
+            0x91 => self.sta(ctx, AddressingMode::DirectIndirectIndexedY),
+            0x92 => self.sta(ctx, AddressingMode::DirectIndirect),
+            0x93 => self.lda(ctx, AddressingMode::StackRelativeIndirectIndexed),
+            0x94 => self.sty(ctx, AddressingMode::DirectX),
+            0x95 => self.sta(ctx, AddressingMode::DirectX),
+            0x96 => self.stx(ctx, AddressingMode::DirectY),
+            0x97 => self.sta(ctx, AddressingMode::DirectIndirectIndexedLongY),
             0x98 => self.tya(ctx),
+            0x99 => self.sta(ctx, AddressingMode::AbsoluteY),
             0x9A => self.txs(ctx),
             0x9B => self.txy(ctx),
+            0x9C => self.stz(ctx, AddressingMode::Absolute),
+            0x9D => self.sta(ctx, AddressingMode::AbsoluteX),
+            0x9E => self.stz(ctx, AddressingMode::AbsoluteX),
+            0x9F => self.sta(ctx, AddressingMode::AbsoluteLongX),
 
             0xA0 => self.ldy_imm(ctx),
             0xA1 => self.lda(ctx, AddressingMode::DirectIndexedIndirect),
@@ -694,6 +723,42 @@ impl Cpu {
             let data = addr.read_16(ctx);
             self.set_nz(data);
             self.y = data;
+        }
+    }
+
+    fn stz(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            addr.write8(ctx, 0);
+        } else {
+            addr.write16(ctx, 0);
+        }
+    }
+
+    fn sta(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            addr.write8(ctx, self.a as u8);
+        } else {
+            addr.write16(ctx, self.a);
+        }
+    }
+
+    fn stx(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            addr.write8(ctx, self.x as u8);
+        } else {
+            addr.write16(ctx, self.x);
+        }
+    }
+
+    fn sty(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            addr.write8(ctx, self.y as u8);
+        } else {
+            addr.write16(ctx, self.y);
         }
     }
 }
