@@ -513,7 +513,13 @@ impl Cpu {
                     mode: WarpMode::NoWarp,
                 }
             }
-            // AbsoluteIndexedIndirect
+            AddressingMode::AbsoluteIndexedIndirect => {
+                let offset = self.fetch_16(ctx).wrapping_add(self.x);
+                WarpAddress {
+                    addr: (self.pb as u32) << 16 | offset as u32,
+                    mode: WarpMode::Warp16bit,
+                }
+            }
             // Stack
             AddressingMode::StackRelative => {
                 let offset = self.fetch_8(ctx) as u16;
@@ -556,6 +562,8 @@ impl Cpu {
             0x1B => self.tcs(ctx),
             0x1E => self.asl_with_addressing(ctx, AddressingMode::AbsoluteX),
 
+            0x20 => self.jsr_abs(ctx),
+            0x22 => self.jsl_far(ctx),
             0x26 => self.rol_with_addressing(ctx, AddressingMode::Direct),
             0x28 => self.plp(ctx),
             0x2A => self.rol_a(ctx),
@@ -665,6 +673,7 @@ impl Cpu {
 
             0xF4 => self.pea(ctx),
             0xFA => self.plx(ctx),
+            0xFC => self.jsr_aix(ctx),
 
             _ => unreachable!(),
         }
@@ -1215,5 +1224,31 @@ impl Cpu {
         .read_24(ctx);
         self.pc = addr as u16;
         self.pb = (addr >> 16) as u8;
+    }
+
+    fn jsr_abs(&mut self, ctx: &mut impl Context) {
+        let addr = self.fetch_16(ctx);
+        ctx.elapse(CPU_CYCLE);
+        self.push_16(ctx, self.pc.wrapping_sub(1));
+        self.pc = addr;
+    }
+
+    fn jsl_far(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        let pc = self.fetch_16(ctx);
+        let pb = self.fetch_8(ctx);
+        self.push_8(ctx, self.pb);
+        self.push_16(ctx, self.pc.wrapping_sub(1));
+        self.pc = pc;
+        self.pb = pb;
+    }
+
+    fn jsr_aix(&mut self, ctx: &mut impl Context) {
+        let addr = self
+            .get_warp_address(AddressingMode::AbsoluteIndexedIndirect, ctx)
+            .read_16(ctx);
+        ctx.elapse(CPU_CYCLE);
+        self.push_16(ctx, self.pc.wrapping_sub(1));
+        self.pc = addr;
     }
 }
