@@ -221,6 +221,17 @@ enum AluType {
     Cmp,
 }
 
+enum BranchType {
+    Bpl,
+    Bmi,
+    Bvc,
+    Bvs,
+    Bcc,
+    Bcs,
+    Bne,
+    Beq,
+}
+
 impl Cpu {
     fn get_pc24(&self) -> u32 {
         (self.pb as u32) << 16 | self.pc as u32
@@ -558,6 +569,7 @@ impl Cpu {
             0x0B => self.phd(ctx),
             0x0E => self.asl_with_addressing(ctx, AddressingMode::Absolute),
 
+            0x10 => self.cond_branch(ctx, BranchType::Bpl),
             0x16 => self.asl_with_addressing(ctx, AddressingMode::DirectX),
             0x1B => self.tcs(ctx),
             0x1E => self.asl_with_addressing(ctx, AddressingMode::AbsoluteX),
@@ -570,6 +582,7 @@ impl Cpu {
             0x2B => self.pld(ctx),
             0x2E => self.rol_with_addressing(ctx, AddressingMode::Absolute),
 
+            0x30 => self.cond_branch(ctx, BranchType::Bmi),
             0x36 => self.rol_with_addressing(ctx, AddressingMode::DirectX),
             0x3B => self.tsc(ctx),
             0x3E => self.rol_with_addressing(ctx, AddressingMode::AbsoluteX),
@@ -582,6 +595,7 @@ impl Cpu {
             0x4C => self.jmp_abs(ctx),
             0x4E => self.lsr_with_addressing(ctx, AddressingMode::Absolute),
 
+            0x50 => self.cond_branch(ctx, BranchType::Bvc),
             0x56 => self.lsr_with_addressing(ctx, AddressingMode::DirectX),
             0x5A => self.phy(ctx),
             0x5B => self.tcd(ctx),
@@ -598,6 +612,7 @@ impl Cpu {
             0x6C => self.jmp_nnnn(ctx),
             0x6E => self.ror_with_addressing(ctx, AddressingMode::Absolute),
 
+            0x70 => self.cond_branch(ctx, BranchType::Bvs),
             0x74 => self.stz(ctx, AddressingMode::DirectX),
             0x76 => self.ror_with_addressing(ctx, AddressingMode::DirectX),
             0x7A => self.ply(ctx),
@@ -620,6 +635,7 @@ impl Cpu {
             0x8E => self.stx(ctx, AddressingMode::Absolute),
             0x8F => self.sta(ctx, AddressingMode::AbsoluteLong),
 
+            0x90 => self.cond_branch(ctx, BranchType::Bcc),
             0x91 => self.sta(ctx, AddressingMode::DirectIndirectIndexedY),
             0x92 => self.sta(ctx, AddressingMode::DirectIndirect),
             0x93 => self.lda(ctx, AddressingMode::StackRelativeIndirectIndexed),
@@ -654,6 +670,7 @@ impl Cpu {
             0xAE => self.ldx(ctx, AddressingMode::Absolute),
             0xAF => self.lda(ctx, AddressingMode::AbsoluteLong),
 
+            0xB0 => self.cond_branch(ctx, BranchType::Bcs),
             0xB1 => self.lda(ctx, AddressingMode::DirectIndirectIndexedY),
             0xB2 => self.lda(ctx, AddressingMode::DirectIndirect),
             0xB3 => self.lda(ctx, AddressingMode::StackRelativeIndirectIndexed),
@@ -670,10 +687,12 @@ impl Cpu {
             0xBE => self.ldx(ctx, AddressingMode::AbsoluteY),
             0xBF => self.lda(ctx, AddressingMode::AbsoluteLongX),
 
+            0xD0 => self.cond_branch(ctx, BranchType::Bne),
             0xD4 => self.pei(ctx),
             0xDA => self.phx(ctx),
             0xDC => self.jmp_far(ctx),
 
+            0xF0 => self.cond_branch(ctx, BranchType::Beq),
             0xF4 => self.pea(ctx),
             0xFA => self.plx(ctx),
             0xFC => self.jsr_aix(ctx),
@@ -1274,5 +1293,30 @@ impl Cpu {
     fn rts(&mut self, ctx: &mut impl Context) {
         ctx.elapse(CPU_CYCLE * 3);
         self.pc = self.pop_16(ctx).wrapping_add(1);
+    }
+
+    fn cond_branch(&mut self, ctx: &mut impl Context, condition: BranchType) {
+        let disp = self.fetch_8(ctx) as i8 as u16;
+        if self.check_branch_condition(condition) {
+            ctx.elapse(CPU_CYCLE);
+            let prev_pc = self.pc;
+            self.pc = self.pc.wrapping_add(disp);
+            if self.e && prev_pc & 0xFF00 != self.pc & 0xFF00 {
+                ctx.elapse(CPU_CYCLE);
+            }
+        }
+    }
+
+    fn check_branch_condition(&self, condition: BranchType) -> bool {
+        match condition {
+            BranchType::Bpl => !self.p.n,
+            BranchType::Bmi => self.p.n,
+            BranchType::Bvc => !self.p.v,
+            BranchType::Bvs => self.p.v,
+            BranchType::Bcc => !self.p.c,
+            BranchType::Bcs => self.p.c,
+            BranchType::Bne => !self.p.z,
+            BranchType::Beq => self.p.z,
+        }
     }
 }
