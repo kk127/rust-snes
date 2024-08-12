@@ -574,6 +574,7 @@ impl Cpu {
             0x3B => self.tsc(ctx),
             0x3E => self.rol_with_addressing(ctx, AddressingMode::AbsoluteX),
 
+            0x40 => self.rti(ctx),
             0x46 => self.lsr_with_addressing(ctx, AddressingMode::Direct),
             0x48 => self.pha(ctx),
             0x4A => self.lsr_a(ctx),
@@ -587,11 +588,13 @@ impl Cpu {
             0x5C => self.jmp_abs_long(ctx),
             0x5E => self.lsr_with_addressing(ctx, AddressingMode::AbsoluteX),
 
+            0x60 => self.rts(ctx),
             0x62 => self.per(ctx),
             0x64 => self.stz(ctx, AddressingMode::Direct),
             0x66 => self.ror_with_addressing(ctx, AddressingMode::Direct),
             0x68 => self.pla(ctx),
             0x6A => self.ror_a(ctx),
+            0x6B => self.rtl(ctx),
             0x6C => self.jmp_nnnn(ctx),
             0x6E => self.ror_with_addressing(ctx, AddressingMode::Absolute),
 
@@ -1250,5 +1253,26 @@ impl Cpu {
         ctx.elapse(CPU_CYCLE);
         self.push_16(ctx, self.pc.wrapping_sub(1));
         self.pc = addr;
+    }
+
+    fn rti(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p = self.pop_8(ctx).into();
+        self.pc = self.pop_16(ctx);
+        if !self.e {
+            self.pb = self.pop_8(ctx);
+            ctx.elapse(CPU_CYCLE);
+        }
+    }
+
+    fn rtl(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        self.pc = self.pop_16(ctx).wrapping_add(1);
+        self.pb = self.pop_8(ctx);
+    }
+
+    fn rts(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 3);
+        self.pc = self.pop_16(ctx).wrapping_add(1);
     }
 }
