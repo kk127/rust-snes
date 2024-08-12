@@ -570,11 +570,13 @@ impl Cpu {
             0x48 => self.pha(ctx),
             0x4A => self.lsr_a(ctx),
             0x4B => self.phk(ctx),
+            0x4C => self.jmp_abs(ctx),
             0x4E => self.lsr_with_addressing(ctx, AddressingMode::Absolute),
 
             0x56 => self.lsr_with_addressing(ctx, AddressingMode::DirectX),
             0x5A => self.phy(ctx),
             0x5B => self.tcd(ctx),
+            0x5C => self.jmp_abs_long(ctx),
             0x5E => self.lsr_with_addressing(ctx, AddressingMode::AbsoluteX),
 
             0x62 => self.per(ctx),
@@ -582,15 +584,19 @@ impl Cpu {
             0x66 => self.ror_with_addressing(ctx, AddressingMode::Direct),
             0x68 => self.pla(ctx),
             0x6A => self.ror_a(ctx),
+            0x6C => self.jmp_nnnn(ctx),
             0x6E => self.ror_with_addressing(ctx, AddressingMode::Absolute),
 
             0x74 => self.stz(ctx, AddressingMode::DirectX),
             0x76 => self.ror_with_addressing(ctx, AddressingMode::DirectX),
             0x7A => self.ply(ctx),
             0x7B => self.tdc(ctx),
+            0x7C => self.jmp_nnnn_x(ctx),
             0x7E => self.ror_with_addressing(ctx, AddressingMode::AbsoluteX),
 
+            0x80 => self.jmp_disp_8(ctx),
             0x81 => self.sta(ctx, AddressingMode::DirectIndexedIndirect),
+            0x82 => self.jmp_disp_16(ctx),
             0x83 => self.lda(ctx, AddressingMode::StackRelative),
             0x84 => self.sty(ctx, AddressingMode::Direct),
             0x85 => self.sta(ctx, AddressingMode::Direct),
@@ -653,8 +659,9 @@ impl Cpu {
             0xBE => self.ldx(ctx, AddressingMode::AbsoluteY),
             0xBF => self.lda(ctx, AddressingMode::AbsoluteLongX),
 
-            0xDA => self.phx(ctx),
             0xD4 => self.pei(ctx),
+            0xDA => self.phx(ctx),
+            0xDC => self.jmp_far(ctx),
 
             0xF4 => self.pea(ctx),
             0xFA => self.plx(ctx),
@@ -1151,5 +1158,62 @@ impl Cpu {
             self.set_nz(result);
             addr.write_16(ctx, result);
         }
+    }
+
+    fn jmp_disp_8(&mut self, ctx: &mut impl Context) {
+        let disp = self.fetch_8(ctx) as i8 as u16;
+        ctx.elapse(CPU_CYCLE);
+        if self.e && (self.pc & 0xFF) + (disp & 0xFF) >= 0x100 {
+            ctx.elapse(CPU_CYCLE);
+        }
+        self.pc = self.pc.wrapping_add(disp);
+    }
+
+    fn jmp_disp_16(&mut self, ctx: &mut impl Context) {
+        let disp = self.fetch_16(ctx);
+        ctx.elapse(CPU_CYCLE);
+        self.pc = self.pc.wrapping_add(disp);
+    }
+
+    fn jmp_abs(&mut self, ctx: &mut impl Context) {
+        let addr = self.fetch_16(ctx);
+        self.pc = addr;
+    }
+
+    fn jmp_abs_long(&mut self, ctx: &mut impl Context) {
+        let addr = self.fetch_24(ctx);
+        self.pc = addr as u16;
+        self.pb = (addr >> 16) as u8;
+    }
+
+    fn jmp_nnnn(&mut self, ctx: &mut impl Context) {
+        let addr = WarpAddress {
+            addr: self.fetch_16(ctx) as u32,
+            mode: WarpMode::Warp16bit,
+        }
+        .read_16(ctx);
+        self.pc = addr;
+    }
+
+    fn jmp_nnnn_x(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        let addr = WarpAddress {
+            addr: (self.pb as u32) << 16 | self.fetch_16(ctx) as u32,
+            mode: WarpMode::Warp16bit,
+        }
+        .offset(self.x)
+        .read_16(ctx);
+
+        self.pc = addr;
+    }
+
+    fn jmp_far(&mut self, ctx: &mut impl Context) {
+        let addr = WarpAddress {
+            addr: self.fetch_16(ctx) as u32,
+            mode: WarpMode::Warp16bit,
+        }
+        .read_24(ctx);
+        self.pc = addr as u16;
+        self.pb = (addr >> 16) as u8;
     }
 }
