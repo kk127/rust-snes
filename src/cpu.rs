@@ -687,14 +687,19 @@ impl Cpu {
             0xBE => self.ldx(ctx, AddressingMode::AbsoluteY),
             0xBF => self.lda(ctx, AddressingMode::AbsoluteLongX),
 
+            0xC2 => self.rep(ctx),
+
             0xD0 => self.cond_branch(ctx, BranchType::Bne),
             0xD4 => self.pei(ctx),
             0xDA => self.phx(ctx),
             0xDC => self.jmp_far(ctx),
 
+            0xE2 => self.sep(ctx),
+
             0xF0 => self.cond_branch(ctx, BranchType::Beq),
             0xF4 => self.pea(ctx),
             0xFA => self.plx(ctx),
+            0xFB => self.xce(ctx),
             0xFC => self.jsr_aix(ctx),
 
             _ => unreachable!(),
@@ -1318,5 +1323,59 @@ impl Cpu {
             BranchType::Bne => !self.p.z,
             BranchType::Beq => self.p.z,
         }
+    }
+
+    fn clc(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p.c = false;
+    }
+
+    fn cli(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p.i = false;
+    }
+
+    fn cld(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p.d = false;
+    }
+
+    fn clv(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p.v = false;
+    }
+
+    fn sec(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p.c = true;
+    }
+
+    fn sei(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p.i = true;
+    }
+
+    fn sed(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.p.d = true;
+    }
+
+    fn rep(&mut self, ctx: &mut impl Context) {
+        let data = self.fetch_8(ctx);
+        ctx.elapse(CPU_CYCLE);
+        let p: u8 = self.p.into();
+        self.p = (p & !data).into();
+    }
+
+    fn sep(&mut self, ctx: &mut impl Context) {
+        let data = self.fetch_8(ctx);
+        ctx.elapse(CPU_CYCLE);
+        let p: u8 = self.p.into();
+        self.p = (p | data).into();
+    }
+
+    fn xce(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        std::mem::swap(&mut self.p.c, &mut self.e);
     }
 }
