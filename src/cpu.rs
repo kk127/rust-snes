@@ -15,6 +15,9 @@ pub struct Cpu {
     db: u8,
     pb: u8,
     e: bool,
+
+    stop: bool,
+    halt: bool,
 }
 
 impl Default for Cpu {
@@ -30,6 +33,9 @@ impl Default for Cpu {
             db: 0,
             pb: 0,
             e: true,
+
+            stop: false,
+            halt: false,
         }
     }
 }
@@ -588,6 +594,7 @@ impl Cpu {
             0x3E => self.rol_with_addressing(ctx, AddressingMode::AbsoluteX),
 
             0x40 => self.rti(ctx),
+            0x42 => self.wdm(ctx),
             0x46 => self.lsr_with_addressing(ctx, AddressingMode::Direct),
             0x48 => self.pha(ctx),
             0x4A => self.lsr_a(ctx),
@@ -688,13 +695,17 @@ impl Cpu {
             0xBF => self.lda(ctx, AddressingMode::AbsoluteLongX),
 
             0xC2 => self.rep(ctx),
+            0xCB => self.wai(ctx),
 
             0xD0 => self.cond_branch(ctx, BranchType::Bne),
             0xD4 => self.pei(ctx),
             0xDA => self.phx(ctx),
+            0xDB => self.stp(ctx),
             0xDC => self.jmp_far(ctx),
 
             0xE2 => self.sep(ctx),
+            0xEA => self.nop(ctx),
+            0xEB => self.xba(ctx),
 
             0xF0 => self.cond_branch(ctx, BranchType::Beq),
             0xF4 => self.pea(ctx),
@@ -1377,5 +1388,29 @@ impl Cpu {
     fn xce(&mut self, ctx: &mut impl Context) {
         ctx.elapse(CPU_CYCLE);
         std::mem::swap(&mut self.p.c, &mut self.e);
+    }
+
+    fn stp(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.stop = true;
+    }
+
+    fn xba(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        self.a = self.a.rotate_right(8);
+        self.set_nz(self.a);
+    }
+
+    fn wai(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE * 2);
+        self.halt = true;
+    }
+
+    fn wdm(&mut self, ctx: &mut impl Context) {
+        self.fetch_8(ctx);
+    }
+
+    fn nop(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
     }
 }
