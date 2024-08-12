@@ -175,11 +175,11 @@ impl WarpAddress {
         bank << 16 | hi << 8 | lo
     }
 
-    fn write8(&self, context: &mut impl Context, data: u8) {
+    fn write_8(&self, context: &mut impl Context, data: u8) {
         context.bus_write(self.unwrap(), data);
     }
 
-    fn write16(&self, context: &mut impl Context, data: u16) {
+    fn write_16(&self, context: &mut impl Context, data: u16) {
         context.bus_write(self.unwrap(), data as u8);
         context.bus_write(self.offset(1).unwrap(), (data >> 8) as u8);
     }
@@ -210,6 +210,15 @@ enum AddressingMode {
     StackRelative,
     StackRelativeIndirectIndexed,
     BlockMove,
+}
+
+enum AluType {
+    Or,
+    And,
+    Xor,
+    Add,
+    Sub,
+    Cmp,
 }
 
 impl Cpu {
@@ -295,10 +304,10 @@ impl Cpu {
 
     fn get_warp_address(
         &mut self,
-        adressing_mode: AddressingMode,
+        addressing_mode: AddressingMode,
         ctx: &mut impl Context,
     ) -> WarpAddress {
-        match adressing_mode {
+        match addressing_mode {
             //  AddressingMode::Immediate は別で扱う？
             AddressingMode::Absolute => {
                 let addr = (self.pb as u32) << 16 | self.fetch_16(ctx) as u32;
@@ -537,29 +546,49 @@ impl Cpu {
     fn excecute_instruction(&mut self, ctx: &mut impl Context) {
         let opcode = self.fetch_8(ctx);
         match opcode {
+            0x06 => self.asl_with_addressing(ctx, AddressingMode::Direct),
             0x08 => self.php(ctx),
+            0x0A => self.asl_a(ctx),
             0x0B => self.phd(ctx),
+            0x0E => self.asl_with_addressing(ctx, AddressingMode::Absolute),
 
+            0x16 => self.asl_with_addressing(ctx, AddressingMode::DirectX),
             0x1B => self.tcs(ctx),
+            0x1E => self.asl_with_addressing(ctx, AddressingMode::AbsoluteX),
 
+            0x26 => self.rol_with_addressing(ctx, AddressingMode::Direct),
             0x28 => self.plp(ctx),
+            0x2A => self.rol_a(ctx),
             0x2B => self.pld(ctx),
+            0x2E => self.rol_with_addressing(ctx, AddressingMode::Absolute),
 
+            0x36 => self.rol_with_addressing(ctx, AddressingMode::DirectX),
             0x3B => self.tsc(ctx),
+            0x3E => self.rol_with_addressing(ctx, AddressingMode::AbsoluteX),
 
+            0x46 => self.lsr_with_addressing(ctx, AddressingMode::Direct),
             0x48 => self.pha(ctx),
+            0x4A => self.lsr_a(ctx),
             0x4B => self.phk(ctx),
+            0x4E => self.lsr_with_addressing(ctx, AddressingMode::Absolute),
 
+            0x56 => self.lsr_with_addressing(ctx, AddressingMode::DirectX),
             0x5A => self.phy(ctx),
             0x5B => self.tcd(ctx),
+            0x5E => self.lsr_with_addressing(ctx, AddressingMode::AbsoluteX),
 
             0x62 => self.per(ctx),
             0x64 => self.stz(ctx, AddressingMode::Direct),
+            0x66 => self.ror_with_addressing(ctx, AddressingMode::Direct),
             0x68 => self.pla(ctx),
+            0x6A => self.ror_a(ctx),
+            0x6E => self.ror_with_addressing(ctx, AddressingMode::Absolute),
 
             0x74 => self.stz(ctx, AddressingMode::DirectX),
+            0x76 => self.ror_with_addressing(ctx, AddressingMode::DirectX),
             0x7A => self.ply(ctx),
             0x7B => self.tdc(ctx),
+            0x7E => self.ror_with_addressing(ctx, AddressingMode::AbsoluteX),
 
             0x81 => self.sta(ctx, AddressingMode::DirectIndexedIndirect),
             0x83 => self.lda(ctx, AddressingMode::StackRelative),
@@ -810,36 +839,36 @@ impl Cpu {
     fn stz(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_memory_8bit() {
-            addr.write8(ctx, 0);
+            addr.write_8(ctx, 0);
         } else {
-            addr.write16(ctx, 0);
+            addr.write_16(ctx, 0);
         }
     }
 
     fn sta(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_memory_8bit() {
-            addr.write8(ctx, self.a as u8);
+            addr.write_8(ctx, self.a as u8);
         } else {
-            addr.write16(ctx, self.a);
+            addr.write_16(ctx, self.a);
         }
     }
 
     fn stx(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_xy_register_8bit() {
-            addr.write8(ctx, self.x as u8);
+            addr.write_8(ctx, self.x as u8);
         } else {
-            addr.write16(ctx, self.x);
+            addr.write_16(ctx, self.x);
         }
     }
 
     fn sty(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_xy_register_8bit() {
-            addr.write8(ctx, self.y as u8);
+            addr.write_8(ctx, self.y as u8);
         } else {
-            addr.write16(ctx, self.y);
+            addr.write_16(ctx, self.y);
         }
     }
 
@@ -952,5 +981,175 @@ impl Cpu {
     fn plp(&mut self, ctx: &mut impl Context) {
         ctx.elapse(CPU_CYCLE * 2);
         self.p = self.pop_8(ctx).into();
+    }
+
+    fn alu(&mut self, ctx: &mut impl Context, alu_type: AluType, addressing_mode: AddressingMode) {
+        if self.is_a_register_8bit() {
+            let a = self.a as u8;
+            let b = self.get_warp_address(addressing_mode, ctx).read_8(ctx);
+            // TODO
+            // let c = match alu_type {
+            //     AluType::Or => a | b,
+            //     AluType::And => a & b,
+            //     AluType::Xor => a ^ b,
+            //     AluType::Add => a.wrapping_add(b),
+            //     AluType::Sub => a.wrapping_sub(b),
+            //     AluType::Cmp => {
+            //         let result = a.wrapping_sub(b);
+            //         self.p.c = a >= b;
+            //         self.set_nz(result);
+            //         return;
+            //     }
+            // };
+            // self.set_nz(c);
+        }
+    }
+
+    fn asl_a(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_a_register_8bit() {
+            let data = self.a as u8;
+            self.p.c = (data >> 7) & 1 == 1;
+            let result = data << 1;
+            self.set_nz(result);
+            self.a = result as u16;
+        } else {
+            let data = self.a;
+            self.p.c = (data >> 15) & 1 == 1;
+            let result = data << 1;
+            self.set_nz(result);
+            self.a = result;
+        }
+    }
+
+    fn asl_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        ctx.elapse(CPU_CYCLE);
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            let data = addr.read_8(ctx);
+            self.p.c = (data >> 7) & 1 == 1;
+            let result = data << 1;
+            self.set_nz(result);
+            addr.write_8(ctx, result);
+        } else {
+            let data = addr.read_16(ctx);
+            self.p.c = (data >> 15) & 1 == 1;
+            let result = data << 1;
+            self.set_nz(result);
+            addr.write_16(ctx, result);
+        }
+    }
+
+    fn lsr_a(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_a_register_8bit() {
+            let data = self.a as u8;
+            self.p.c = data & 1 == 1;
+            let result = data >> 1;
+            self.set_nz(result);
+            self.a = result as u16;
+        } else {
+            let data = self.a;
+            self.p.c = data & 1 == 1;
+            let result = data >> 1;
+            self.set_nz(result);
+            self.a = result;
+        }
+    }
+
+    fn lsr_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        ctx.elapse(CPU_CYCLE);
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            let data = addr.read_8(ctx);
+            self.p.c = data & 1 == 1;
+            let result = data >> 1;
+            self.set_nz(result);
+            addr.write_8(ctx, result);
+        } else {
+            let data = addr.read_16(ctx);
+            self.p.c = data & 1 == 1;
+            let result = data >> 1;
+            self.set_nz(result);
+            addr.write_16(ctx, result);
+        }
+    }
+
+    fn rol_a(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_a_register_8bit() {
+            let data = self.a as u8;
+            let c = self.p.c as u8;
+            self.p.c = (data >> 7) & 1 == 1;
+            let result = (data << 1) | c;
+            self.set_nz(result);
+            self.a = result as u16;
+        } else {
+            let data = self.a;
+            let c = self.p.c as u16;
+            self.p.c = (data >> 15) & 1 == 1;
+            let result = (data << 1) | c;
+            self.set_nz(result);
+            self.a = result;
+        }
+    }
+
+    fn rol_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        ctx.elapse(CPU_CYCLE);
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            let data = addr.read_8(ctx);
+            let c = self.p.c as u8;
+            self.p.c = (data >> 7) & 1 == 1;
+            let result = (data << 1) | c;
+            self.set_nz(result);
+            addr.write_8(ctx, result);
+        } else {
+            let data = addr.read_16(ctx);
+            let c = self.p.c as u16;
+            self.p.c = (data >> 15) & 1 == 1;
+            let result = (data << 1) | c;
+            self.set_nz(result);
+            addr.write_16(ctx, result);
+        }
+    }
+
+    fn ror_a(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_a_register_8bit() {
+            let data = self.a as u8;
+            let c = self.p.c as u8;
+            self.p.c = data & 1 == 1;
+            let result = (data >> 1) | (c << 7);
+            self.set_nz(result);
+            self.a = result as u16;
+        } else {
+            let data = self.a;
+            let c = self.p.c as u16;
+            self.p.c = data & 1 == 1;
+            let result = (data >> 1) | (c << 15);
+            self.set_nz(result);
+            self.a = result;
+        }
+    }
+
+    fn ror_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        ctx.elapse(CPU_CYCLE);
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_memory_8bit() {
+            let data = addr.read_8(ctx);
+            let c = self.p.c as u8;
+            self.p.c = data & 1 == 1;
+            let result = (data >> 1) | (c << 7);
+            self.set_nz(result);
+            addr.write_8(ctx, result);
+        } else {
+            let data = addr.read_16(ctx);
+            let c = self.p.c as u16;
+            self.p.c = data & 1 == 1;
+            let result = (data >> 1) | (c << 15);
+            self.set_nz(result);
+            addr.write_16(ctx, result);
+        }
     }
 }
