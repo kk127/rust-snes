@@ -191,6 +191,7 @@ impl WarpAddress {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum AddressingMode {
     Immediate,
     Absolute,
@@ -610,6 +611,7 @@ impl Cpu {
             0x21 => self.alu(ctx, AluType::And, AddressingMode::DirectIndexedIndirect),
             0x22 => self.jsl_far(ctx),
             0x23 => self.alu(ctx, AluType::And, AddressingMode::StackRelative),
+            0x24 => self.bit(ctx, AddressingMode::Direct),
             0x25 => self.alu(ctx, AluType::And, AddressingMode::Direct),
             0x26 => self.rol_with_addressing(ctx, AddressingMode::Direct),
             0x27 => self.alu(ctx, AluType::And, AddressingMode::DirectIndirectLong),
@@ -617,6 +619,7 @@ impl Cpu {
             0x29 => self.alu(ctx, AluType::And, AddressingMode::Immediate),
             0x2A => self.rol_a(ctx),
             0x2B => self.pld(ctx),
+            0x2C => self.bit(ctx, AddressingMode::Absolute),
             0x2D => self.alu(ctx, AluType::And, AddressingMode::Absolute),
             0x2E => self.rol_with_addressing(ctx, AddressingMode::Absolute),
             0x2F => self.alu(ctx, AluType::And, AddressingMode::AbsoluteLong),
@@ -629,6 +632,7 @@ impl Cpu {
                 AluType::And,
                 AddressingMode::StackRelativeIndirectIndexed,
             ),
+            0x34 => self.bit(ctx, AddressingMode::DirectX),
             0x35 => self.alu(ctx, AluType::And, AddressingMode::DirectX),
             0x36 => self.rol_with_addressing(ctx, AddressingMode::DirectX),
             0x37 => self.alu(
@@ -638,6 +642,7 @@ impl Cpu {
             ),
             0x39 => self.alu(ctx, AluType::And, AddressingMode::AbsoluteY),
             0x3B => self.tsc(ctx),
+            0x3C => self.bit(ctx, AddressingMode::AbsoluteX),
             0x3D => self.alu(ctx, AluType::And, AddressingMode::AbsoluteX),
             0x3E => self.rol_with_addressing(ctx, AddressingMode::AbsoluteX),
             0x3F => self.alu(ctx, AluType::And, AddressingMode::AbsoluteLongX),
@@ -725,6 +730,7 @@ impl Cpu {
             0x85 => self.sta(ctx, AddressingMode::Direct),
             0x86 => self.stx(ctx, AddressingMode::Direct),
             0x87 => self.sta(ctx, AddressingMode::DirectIndirectLong),
+            0x89 => self.bit(ctx, AddressingMode::Immediate),
             0x8A => self.txa(ctx),
             0x8B => self.phb(ctx),
             0x8C => self.sty(ctx, AddressingMode::Absolute),
@@ -1346,6 +1352,22 @@ impl Cpu {
             let (c, carry) = a.overflowing_sub(b);
             self.p.c = !carry;
             self.set_nz(c);
+        }
+    }
+
+    fn bit(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        if self.is_a_register_8bit() {
+            let data = self.get_warp_address(addressing_mode, ctx).read_8(ctx);
+            if addressing_mode != AddressingMode::Immediate {
+                self.p.n = (data >> 7) & 1 == 1;
+                self.p.v = (data >> 6) & 1 == 1;
+            }
+            self.p.z = (self.a as u8) & data == 0;
+        } else {
+            let data = self.get_warp_address(addressing_mode, ctx).read_16(ctx);
+            self.p.n = (data >> 15) & 1 == 1;
+            self.p.v = (data >> 14) & 1 == 1;
+            self.p.z = self.a & data == 0;
         }
     }
 
