@@ -604,6 +604,7 @@ impl Cpu {
             0x15 => self.alu(ctx, AluType::Or, AddressingMode::DirectX),
             0x16 => self.asl_with_addressing(ctx, AddressingMode::DirectX),
             0x17 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirectIndexedLongY),
+            0x18 => self.clc(ctx),
             0x19 => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteY),
             0x1A => self.ina(ctx),
             0x1B => self.tcs(ctx),
@@ -645,6 +646,7 @@ impl Cpu {
                 AluType::And,
                 AddressingMode::DirectIndirectIndexedLongY,
             ),
+            0x38 => self.sec(ctx),
             0x39 => self.alu(ctx, AluType::And, AddressingMode::AbsoluteY),
             0x3A => self.dea(ctx),
             0x3B => self.tsc(ctx),
@@ -679,6 +681,7 @@ impl Cpu {
             ),
             0x55 => self.alu(ctx, AluType::Xor, AddressingMode::DirectX),
             0x56 => self.lsr_with_addressing(ctx, AddressingMode::DirectX),
+            0x58 => self.cli(ctx),
             0x59 => self.alu(ctx, AluType::Xor, AddressingMode::AbsoluteY),
             0x5A => self.phy(ctx),
             0x5B => self.tcd(ctx),
@@ -720,6 +723,7 @@ impl Cpu {
                 AluType::Add,
                 AddressingMode::DirectIndirectIndexedLongY,
             ),
+            0x78 => self.sei(ctx),
             0x79 => self.alu(ctx, AluType::Add, AddressingMode::AbsoluteY),
             0x7A => self.ply(ctx),
             0x7B => self.tdc(ctx),
@@ -789,6 +793,7 @@ impl Cpu {
             0xB6 => self.ldx(ctx, AddressingMode::DirectY),
             0xB7 => self.lda(ctx, AddressingMode::DirectIndirectIndexedLongY),
 
+            0xB8 => self.clv(ctx),
             0xB9 => self.lda(ctx, AddressingMode::AbsoluteY),
             0xBA => self.tsx(ctx),
             0xBB => self.tyx(ctx),
@@ -830,6 +835,7 @@ impl Cpu {
                 AluType::Cmp,
                 AddressingMode::DirectIndirectIndexedLongY,
             ),
+            0xD8 => self.cld(ctx),
             0xD9 => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteY),
             0xDA => self.phx(ctx),
             0xDB => self.stp(ctx),
@@ -871,6 +877,7 @@ impl Cpu {
                 AluType::Sub,
                 AddressingMode::DirectIndirectIndexedLongY,
             ),
+            0xF8 => self.sed(ctx),
             0xF9 => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteY),
             0xFA => self.plx(ctx),
             0xFB => self.xce(ctx),
@@ -879,7 +886,7 @@ impl Cpu {
             0xFE => self.inc(ctx, AddressingMode::AbsoluteX),
             0xFF => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteLongX),
 
-            _ => unreachable!(),
+            _ => unimplemented!(),
         }
     }
 
