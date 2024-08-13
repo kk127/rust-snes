@@ -579,6 +579,7 @@ impl Cpu {
         match opcode {
             0x01 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndexedIndirect),
             0x03 => self.alu(ctx, AluType::Or, AddressingMode::StackRelative),
+            0x04 => self.tsb(ctx, AddressingMode::Direct),
             0x05 => self.alu(ctx, AluType::Or, AddressingMode::Direct),
             0x06 => self.asl_with_addressing(ctx, AddressingMode::Direct),
             0x07 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirectLong),
@@ -586,6 +587,7 @@ impl Cpu {
             0x09 => self.alu(ctx, AluType::Or, AddressingMode::Immediate),
             0x0A => self.asl_a(ctx),
             0x0B => self.phd(ctx),
+            0x0C => self.tsb(ctx, AddressingMode::Absolute),
             0x0D => self.alu(ctx, AluType::Or, AddressingMode::Absolute),
             0x0E => self.asl_with_addressing(ctx, AddressingMode::Absolute),
             0x0F => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteLong),
@@ -598,12 +600,14 @@ impl Cpu {
                 AluType::Or,
                 AddressingMode::StackRelativeIndirectIndexed,
             ),
+            0x14 => self.trb(ctx, AddressingMode::Direct),
             0x15 => self.alu(ctx, AluType::Or, AddressingMode::DirectX),
             0x16 => self.asl_with_addressing(ctx, AddressingMode::DirectX),
             0x17 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirectIndexedLongY),
             0x19 => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteY),
             0x1A => self.ina(ctx),
             0x1B => self.tcs(ctx),
+            0x1C => self.trb(ctx, AddressingMode::Absolute),
             0x1D => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteX),
             0x1E => self.asl_with_addressing(ctx, AddressingMode::AbsoluteX),
             0x1F => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteLongX),
@@ -1504,6 +1508,32 @@ impl Cpu {
             let result = data.wrapping_sub(1);
             self.set_nz(result);
             self.a = result;
+        }
+    }
+
+    fn tsb(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_a_register_8bit() {
+            let data = addr.read_8(ctx);
+            self.p.z = (self.a as u8) & data == 0;
+            addr.write_8(ctx, data | (self.a as u8));
+        } else {
+            let data = addr.read_16(ctx);
+            self.p.z = self.a & data == 0;
+            addr.write_16(ctx, data | self.a);
+        }
+    }
+
+    fn trb(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        if self.is_a_register_8bit() {
+            let data = addr.read_8(ctx);
+            self.p.z = (self.a as u8) & data == 0;
+            addr.write_8(ctx, data & !(self.a as u8));
+        } else {
+            let data = addr.read_16(ctx);
+            self.p.z = self.a & data == 0;
+            addr.write_16(ctx, data & !self.a);
         }
     }
 
