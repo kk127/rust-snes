@@ -602,6 +602,7 @@ impl Cpu {
             0x16 => self.asl_with_addressing(ctx, AddressingMode::DirectX),
             0x17 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirectIndexedLongY),
             0x19 => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteY),
+            0x1A => self.ina(ctx),
             0x1B => self.tcs(ctx),
             0x1D => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteX),
             0x1E => self.asl_with_addressing(ctx, AddressingMode::AbsoluteX),
@@ -641,6 +642,7 @@ impl Cpu {
                 AddressingMode::DirectIndirectIndexedLongY,
             ),
             0x39 => self.alu(ctx, AluType::And, AddressingMode::AbsoluteY),
+            0x3A => self.dea(ctx),
             0x3B => self.tsc(ctx),
             0x3C => self.bit(ctx, AddressingMode::AbsoluteX),
             0x3D => self.alu(ctx, AluType::And, AddressingMode::AbsoluteX),
@@ -730,6 +732,7 @@ impl Cpu {
             0x85 => self.sta(ctx, AddressingMode::Direct),
             0x86 => self.stx(ctx, AddressingMode::Direct),
             0x87 => self.sta(ctx, AddressingMode::DirectIndirectLong),
+            0x88 => self.dey(ctx),
             0x89 => self.bit(ctx, AddressingMode::Immediate),
             0x8A => self.txa(ctx),
             0x8B => self.phb(ctx),
@@ -796,11 +799,15 @@ impl Cpu {
             0xC3 => self.alu(ctx, AluType::Cmp, AddressingMode::StackRelative),
             0xC4 => self.cmp_xy(ctx, AddressingMode::Direct, Register::Y),
             0xC5 => self.alu(ctx, AluType::Cmp, AddressingMode::Direct),
+            0xC6 => self.dec(ctx, AddressingMode::Direct),
             0xC7 => self.alu(ctx, AluType::Cmp, AddressingMode::DirectIndirectLong),
+            0xC8 => self.iny(ctx),
             0xC9 => self.alu(ctx, AluType::Cmp, AddressingMode::Immediate),
+            0xCA => self.dex(ctx),
             0xCB => self.wai(ctx),
             0xCC => self.cmp_xy(ctx, AddressingMode::Absolute, Register::Y),
             0xCD => self.alu(ctx, AluType::Cmp, AddressingMode::Absolute),
+            0xCE => self.dec(ctx, AddressingMode::Absolute),
             0xCF => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteLong),
 
             0xD0 => self.cond_branch(ctx, BranchType::Bne),
@@ -813,6 +820,7 @@ impl Cpu {
             ),
             0xD4 => self.pei(ctx),
             0xD5 => self.alu(ctx, AluType::Cmp, AddressingMode::DirectX),
+            0xD6 => self.dec(ctx, AddressingMode::DirectX),
             0xD7 => self.alu(
                 ctx,
                 AluType::Cmp,
@@ -823,6 +831,7 @@ impl Cpu {
             0xDB => self.stp(ctx),
             0xDC => self.jmp_far(ctx),
             0xDD => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteX),
+            0xDE => self.dec(ctx, AddressingMode::AbsoluteX),
             0xDF => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteLongX),
 
             0xE0 => self.cmp_xy(ctx, AddressingMode::Immediate, Register::X),
@@ -831,12 +840,15 @@ impl Cpu {
             0xE3 => self.alu(ctx, AluType::Sub, AddressingMode::StackRelative),
             0xE4 => self.cmp_xy(ctx, AddressingMode::Direct, Register::X),
             0xE5 => self.alu(ctx, AluType::Sub, AddressingMode::Direct),
+            0xE6 => self.inc(ctx, AddressingMode::Direct),
             0xE7 => self.alu(ctx, AluType::Sub, AddressingMode::DirectIndirectLong),
+            0xE8 => self.inx(ctx),
             0xE9 => self.alu(ctx, AluType::Sub, AddressingMode::Immediate),
             0xEA => self.nop(ctx),
             0xEB => self.xba(ctx),
             0xEC => self.cmp_xy(ctx, AddressingMode::Absolute, Register::X),
             0xED => self.alu(ctx, AluType::Sub, AddressingMode::Absolute),
+            0xEE => self.inc(ctx, AddressingMode::Absolute),
             0xEF => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteLong),
 
             0xF0 => self.cond_branch(ctx, BranchType::Beq),
@@ -849,6 +861,7 @@ impl Cpu {
             ),
             0xF4 => self.pea(ctx),
             0xF5 => self.alu(ctx, AluType::Sub, AddressingMode::DirectX),
+            0xF6 => self.inc(ctx, AddressingMode::DirectX),
             0xF7 => self.alu(
                 ctx,
                 AluType::Sub,
@@ -859,6 +872,7 @@ impl Cpu {
             0xFB => self.xce(ctx),
             0xFC => self.jsr_aix(ctx),
             0xFD => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteX),
+            0xFE => self.inc(ctx, AddressingMode::AbsoluteX),
             0xFF => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteLongX),
 
             _ => unreachable!(),
@@ -1368,6 +1382,128 @@ impl Cpu {
             self.p.n = (data >> 15) & 1 == 1;
             self.p.v = (data >> 14) & 1 == 1;
             self.p.z = self.a & data == 0;
+        }
+    }
+
+    fn inc(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        ctx.elapse(CPU_CYCLE);
+        if self.is_memory_8bit() {
+            let data = addr.read_8(ctx);
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            addr.write_8(ctx, result);
+        } else {
+            let data = addr.read_16(ctx);
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            addr.write_16(ctx, result);
+        }
+    }
+
+    fn inx(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_xy_register_8bit() {
+            let data = self.x as u8;
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            self.x = result as u16;
+        } else {
+            let data = self.x;
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            self.x = result;
+        }
+    }
+
+    fn iny(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_xy_register_8bit() {
+            let data = self.y as u8;
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            self.y = result as u16;
+        } else {
+            let data = self.y;
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            self.y = result;
+        }
+    }
+
+    fn ina(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_a_register_8bit() {
+            let data = self.a as u8;
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            self.a = result as u16;
+        } else {
+            let data = self.a;
+            let result = data.wrapping_add(1);
+            self.set_nz(result);
+            self.a = result;
+        }
+    }
+
+    fn dec(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
+        let addr = self.get_warp_address(addressing_mode, ctx);
+        ctx.elapse(CPU_CYCLE);
+        if self.is_memory_8bit() {
+            let data = addr.read_8(ctx);
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            addr.write_8(ctx, result);
+        } else {
+            let data = addr.read_16(ctx);
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            addr.write_16(ctx, result);
+        }
+    }
+
+    fn dex(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_xy_register_8bit() {
+            let data = self.x as u8;
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            self.x = result as u16;
+        } else {
+            let data = self.x;
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            self.x = result;
+        }
+    }
+
+    fn dey(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_xy_register_8bit() {
+            let data = self.y as u8;
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            self.y = result as u16;
+        } else {
+            let data = self.y;
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            self.y = result;
+        }
+    }
+
+    fn dea(&mut self, ctx: &mut impl Context) {
+        ctx.elapse(CPU_CYCLE);
+        if self.is_a_register_8bit() {
+            let data = self.a as u8;
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            self.a = result as u16;
+        } else {
+            let data = self.a;
+            let result = data.wrapping_sub(1);
+            self.set_nz(result);
+            self.a = result;
         }
     }
 
