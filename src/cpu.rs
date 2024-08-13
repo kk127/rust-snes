@@ -218,6 +218,7 @@ enum AddressingMode {
     BlockMove,
 }
 
+#[derive(Debug, PartialEq)]
 enum AluType {
     Or,
     And,
@@ -325,7 +326,13 @@ impl Cpu {
         ctx: &mut impl Context,
     ) -> WarpAddress {
         match addressing_mode {
-            //  AddressingMode::Immediate は別で扱う？
+            AddressingMode::Immediate => {
+                let addr = self.get_pc24();
+                WarpAddress {
+                    addr,
+                    mode: WarpMode::NoWarp,
+                }
+            }
             AddressingMode::Absolute => {
                 let addr = (self.pb as u32) << 16 | self.fetch_16(ctx) as u32;
                 WarpAddress {
@@ -569,63 +576,146 @@ impl Cpu {
     fn excecute_instruction(&mut self, ctx: &mut impl Context) {
         let opcode = self.fetch_8(ctx);
         match opcode {
+            0x01 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndexedIndirect),
+            0x03 => self.alu(ctx, AluType::Or, AddressingMode::StackRelative),
+            0x05 => self.alu(ctx, AluType::Or, AddressingMode::Direct),
             0x06 => self.asl_with_addressing(ctx, AddressingMode::Direct),
+            0x07 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirectLong),
             0x08 => self.php(ctx),
+            0x09 => self.alu(ctx, AluType::Or, AddressingMode::Immediate),
             0x0A => self.asl_a(ctx),
             0x0B => self.phd(ctx),
+            0x0D => self.alu(ctx, AluType::Or, AddressingMode::Absolute),
             0x0E => self.asl_with_addressing(ctx, AddressingMode::Absolute),
+            0x0F => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteLong),
 
             0x10 => self.cond_branch(ctx, BranchType::Bpl),
+            0x11 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirectIndexedY),
+            0x12 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirect),
+            0x13 => self.alu(
+                ctx,
+                AluType::Or,
+                AddressingMode::StackRelativeIndirectIndexed,
+            ),
+            0x15 => self.alu(ctx, AluType::Or, AddressingMode::DirectX),
             0x16 => self.asl_with_addressing(ctx, AddressingMode::DirectX),
+            0x17 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndirectIndexedLongY),
+            0x19 => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteY),
             0x1B => self.tcs(ctx),
+            0x1D => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteX),
             0x1E => self.asl_with_addressing(ctx, AddressingMode::AbsoluteX),
+            0x1F => self.alu(ctx, AluType::Or, AddressingMode::AbsoluteLongX),
 
             0x20 => self.jsr_abs(ctx),
+            0x21 => self.alu(ctx, AluType::And, AddressingMode::DirectIndexedIndirect),
             0x22 => self.jsl_far(ctx),
+            0x23 => self.alu(ctx, AluType::And, AddressingMode::StackRelative),
+            0x25 => self.alu(ctx, AluType::And, AddressingMode::Direct),
             0x26 => self.rol_with_addressing(ctx, AddressingMode::Direct),
+            0x27 => self.alu(ctx, AluType::And, AddressingMode::DirectIndirectLong),
             0x28 => self.plp(ctx),
+            0x29 => self.alu(ctx, AluType::And, AddressingMode::Immediate),
             0x2A => self.rol_a(ctx),
             0x2B => self.pld(ctx),
+            0x2D => self.alu(ctx, AluType::And, AddressingMode::Absolute),
             0x2E => self.rol_with_addressing(ctx, AddressingMode::Absolute),
+            0x2F => self.alu(ctx, AluType::And, AddressingMode::AbsoluteLong),
 
             0x30 => self.cond_branch(ctx, BranchType::Bmi),
+            0x31 => self.alu(ctx, AluType::And, AddressingMode::DirectIndirectIndexedY),
+            0x32 => self.alu(ctx, AluType::And, AddressingMode::DirectIndirect),
+            0x33 => self.alu(
+                ctx,
+                AluType::And,
+                AddressingMode::StackRelativeIndirectIndexed,
+            ),
+            0x35 => self.alu(ctx, AluType::And, AddressingMode::DirectX),
             0x36 => self.rol_with_addressing(ctx, AddressingMode::DirectX),
+            0x37 => self.alu(
+                ctx,
+                AluType::And,
+                AddressingMode::DirectIndirectIndexedLongY,
+            ),
+            0x39 => self.alu(ctx, AluType::And, AddressingMode::AbsoluteY),
             0x3B => self.tsc(ctx),
+            0x3D => self.alu(ctx, AluType::And, AddressingMode::AbsoluteX),
             0x3E => self.rol_with_addressing(ctx, AddressingMode::AbsoluteX),
+            0x3F => self.alu(ctx, AluType::And, AddressingMode::AbsoluteLongX),
 
             0x40 => self.rti(ctx),
+            0x41 => self.alu(ctx, AluType::Xor, AddressingMode::DirectIndexedIndirect),
             0x42 => self.wdm(ctx),
+            0x43 => self.alu(ctx, AluType::Xor, AddressingMode::StackRelative),
+            0x45 => self.alu(ctx, AluType::Xor, AddressingMode::Direct),
             0x46 => self.lsr_with_addressing(ctx, AddressingMode::Direct),
+            0x47 => self.alu(ctx, AluType::Xor, AddressingMode::DirectIndirectLong),
             0x48 => self.pha(ctx),
+            0x49 => self.alu(ctx, AluType::Xor, AddressingMode::Immediate),
             0x4A => self.lsr_a(ctx),
             0x4B => self.phk(ctx),
             0x4C => self.jmp_abs(ctx),
+            0x4D => self.alu(ctx, AluType::Xor, AddressingMode::Absolute),
             0x4E => self.lsr_with_addressing(ctx, AddressingMode::Absolute),
+            0x4F => self.alu(ctx, AluType::Xor, AddressingMode::AbsoluteLong),
 
             0x50 => self.cond_branch(ctx, BranchType::Bvc),
+            0x51 => self.alu(ctx, AluType::Xor, AddressingMode::DirectIndirectIndexedY),
+            0x52 => self.alu(ctx, AluType::Xor, AddressingMode::DirectIndirect),
+            0x53 => self.alu(
+                ctx,
+                AluType::Xor,
+                AddressingMode::StackRelativeIndirectIndexed,
+            ),
+            0x55 => self.alu(ctx, AluType::Xor, AddressingMode::DirectX),
             0x56 => self.lsr_with_addressing(ctx, AddressingMode::DirectX),
+            0x59 => self.alu(ctx, AluType::Xor, AddressingMode::AbsoluteY),
             0x5A => self.phy(ctx),
             0x5B => self.tcd(ctx),
             0x5C => self.jmp_abs_long(ctx),
+            0x5D => self.alu(ctx, AluType::Xor, AddressingMode::AbsoluteX),
             0x5E => self.lsr_with_addressing(ctx, AddressingMode::AbsoluteX),
+            0x5F => self.alu(ctx, AluType::Xor, AddressingMode::AbsoluteLongX),
 
             0x60 => self.rts(ctx),
+            0x61 => self.alu(ctx, AluType::Add, AddressingMode::DirectIndexedIndirect),
             0x62 => self.per(ctx),
+            0x63 => self.alu(ctx, AluType::Add, AddressingMode::StackRelative),
             0x64 => self.stz(ctx, AddressingMode::Direct),
+            0x65 => self.alu(ctx, AluType::Add, AddressingMode::Direct),
             0x66 => self.ror_with_addressing(ctx, AddressingMode::Direct),
+            0x67 => self.alu(ctx, AluType::Add, AddressingMode::DirectIndirectLong),
             0x68 => self.pla(ctx),
+            0x69 => self.alu(ctx, AluType::Add, AddressingMode::Immediate),
             0x6A => self.ror_a(ctx),
             0x6B => self.rtl(ctx),
             0x6C => self.jmp_nnnn(ctx),
+            0x6D => self.alu(ctx, AluType::Add, AddressingMode::Absolute),
             0x6E => self.ror_with_addressing(ctx, AddressingMode::Absolute),
+            0x6F => self.alu(ctx, AluType::Add, AddressingMode::AbsoluteLong),
 
             0x70 => self.cond_branch(ctx, BranchType::Bvs),
+            0x71 => self.alu(ctx, AluType::Add, AddressingMode::DirectIndirectIndexedY),
+            0x72 => self.alu(ctx, AluType::Add, AddressingMode::DirectIndirect),
+            0x73 => self.alu(
+                ctx,
+                AluType::Add,
+                AddressingMode::StackRelativeIndirectIndexed,
+            ),
             0x74 => self.stz(ctx, AddressingMode::DirectX),
+            0x75 => self.alu(ctx, AluType::Add, AddressingMode::DirectX),
             0x76 => self.ror_with_addressing(ctx, AddressingMode::DirectX),
+            0x77 => self.alu(
+                ctx,
+                AluType::Add,
+                AddressingMode::DirectIndirectIndexedLongY,
+            ),
+            0x79 => self.alu(ctx, AluType::Add, AddressingMode::AbsoluteY),
             0x7A => self.ply(ctx),
             0x7B => self.tdc(ctx),
             0x7C => self.jmp_nnnn_x(ctx),
+            0x7D => self.alu(ctx, AluType::Add, AddressingMode::AbsoluteX),
             0x7E => self.ror_with_addressing(ctx, AddressingMode::AbsoluteX),
+            0x7F => self.alu(ctx, AluType::Add, AddressingMode::AbsoluteLongX),
 
             0x80 => self.jmp_disp_8(ctx),
             0x81 => self.sta(ctx, AddressingMode::DirectIndexedIndirect),
@@ -694,24 +784,76 @@ impl Cpu {
             0xBE => self.ldx(ctx, AddressingMode::AbsoluteY),
             0xBF => self.lda(ctx, AddressingMode::AbsoluteLongX),
 
+            0xC0 => self.cmp_xy(ctx, AddressingMode::Immediate, Register::Y),
+            0xC1 => self.alu(ctx, AluType::Cmp, AddressingMode::DirectIndexedIndirect),
             0xC2 => self.rep(ctx),
+            0xC3 => self.alu(ctx, AluType::Cmp, AddressingMode::StackRelative),
+            0xC4 => self.cmp_xy(ctx, AddressingMode::Direct, Register::Y),
+            0xC5 => self.alu(ctx, AluType::Cmp, AddressingMode::Direct),
+            0xC7 => self.alu(ctx, AluType::Cmp, AddressingMode::DirectIndirectLong),
+            0xC9 => self.alu(ctx, AluType::Cmp, AddressingMode::Immediate),
             0xCB => self.wai(ctx),
+            0xCC => self.cmp_xy(ctx, AddressingMode::Absolute, Register::Y),
+            0xCD => self.alu(ctx, AluType::Cmp, AddressingMode::Absolute),
+            0xCF => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteLong),
 
             0xD0 => self.cond_branch(ctx, BranchType::Bne),
+            0xD1 => self.alu(ctx, AluType::Cmp, AddressingMode::DirectIndirectIndexedY),
+            0xD2 => self.alu(ctx, AluType::Cmp, AddressingMode::DirectIndirect),
+            0xD3 => self.alu(
+                ctx,
+                AluType::Cmp,
+                AddressingMode::StackRelativeIndirectIndexed,
+            ),
             0xD4 => self.pei(ctx),
+            0xD5 => self.alu(ctx, AluType::Cmp, AddressingMode::DirectX),
+            0xD7 => self.alu(
+                ctx,
+                AluType::Cmp,
+                AddressingMode::DirectIndirectIndexedLongY,
+            ),
+            0xD9 => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteY),
             0xDA => self.phx(ctx),
             0xDB => self.stp(ctx),
             0xDC => self.jmp_far(ctx),
+            0xDD => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteX),
+            0xDF => self.alu(ctx, AluType::Cmp, AddressingMode::AbsoluteLongX),
 
+            0xE0 => self.cmp_xy(ctx, AddressingMode::Immediate, Register::X),
+            0xE1 => self.alu(ctx, AluType::Sub, AddressingMode::DirectIndexedIndirect),
             0xE2 => self.sep(ctx),
+            0xE3 => self.alu(ctx, AluType::Sub, AddressingMode::StackRelative),
+            0xE4 => self.cmp_xy(ctx, AddressingMode::Direct, Register::X),
+            0xE5 => self.alu(ctx, AluType::Sub, AddressingMode::Direct),
+            0xE7 => self.alu(ctx, AluType::Sub, AddressingMode::DirectIndirectLong),
+            0xE9 => self.alu(ctx, AluType::Sub, AddressingMode::Immediate),
             0xEA => self.nop(ctx),
             0xEB => self.xba(ctx),
+            0xEC => self.cmp_xy(ctx, AddressingMode::Absolute, Register::X),
+            0xED => self.alu(ctx, AluType::Sub, AddressingMode::Absolute),
+            0xEF => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteLong),
 
             0xF0 => self.cond_branch(ctx, BranchType::Beq),
+            0xF1 => self.alu(ctx, AluType::Sub, AddressingMode::DirectIndirectIndexedY),
+            0xF2 => self.alu(ctx, AluType::Sub, AddressingMode::DirectIndirect),
+            0xF3 => self.alu(
+                ctx,
+                AluType::Sub,
+                AddressingMode::StackRelativeIndirectIndexed,
+            ),
             0xF4 => self.pea(ctx),
+            0xF5 => self.alu(ctx, AluType::Sub, AddressingMode::DirectX),
+            0xF7 => self.alu(
+                ctx,
+                AluType::Sub,
+                AddressingMode::DirectIndirectIndexedLongY,
+            ),
+            0xF9 => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteY),
             0xFA => self.plx(ctx),
             0xFB => self.xce(ctx),
             0xFC => self.jsr_aix(ctx),
+            0xFD => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteX),
+            0xFF => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteLongX),
 
             _ => unreachable!(),
         }
@@ -1041,21 +1183,169 @@ impl Cpu {
         if self.is_a_register_8bit() {
             let a = self.a as u8;
             let b = self.get_warp_address(addressing_mode, ctx).read_8(ctx);
-            // TODO
-            // let c = match alu_type {
-            //     AluType::Or => a | b,
-            //     AluType::And => a & b,
-            //     AluType::Xor => a ^ b,
-            //     AluType::Add => a.wrapping_add(b),
-            //     AluType::Sub => a.wrapping_sub(b),
-            //     AluType::Cmp => {
-            //         let result = a.wrapping_sub(b);
-            //         self.p.c = a >= b;
-            //         self.set_nz(result);
-            //         return;
-            //     }
-            // };
-            // self.set_nz(c);
+            let c = match alu_type {
+                AluType::Or => a | b,
+                AluType::And => a & b,
+                AluType::Xor => a ^ b,
+                AluType::Add => self.alu_add_8(a, b),
+                //     AluType::Sub => a.wrapping_sub(b),
+                AluType::Cmp => self.cmp_8(a, b),
+                _ => unreachable!(),
+            };
+            if alu_type != AluType::Cmp {
+                self.a = c as u16;
+            }
+            self.set_nz(c);
+        } else {
+            let a = self.a;
+            let b = self.get_warp_address(addressing_mode, ctx).read_16(ctx);
+            let c = match alu_type {
+                AluType::Or => a | b,
+                AluType::And => a & b,
+                AluType::Xor => a ^ b,
+                AluType::Add => self.alu_add_16(a, b),
+                //     AluType::Sub => self.a = a.wrapping_sub(b),
+                AluType::Cmp => self.cmp_16(a, b),
+                _ => unreachable!(),
+            };
+            if alu_type != AluType::Cmp {
+                self.a = c;
+            }
+            self.set_nz(c);
+        }
+    }
+
+    fn alu_add_8(&mut self, a: u8, b: u8) -> u8 {
+        let c = if self.p.d {
+            self.dcd_add_8(a, b)
+        } else {
+            self.bin_add_8(a, b)
+        };
+        c
+    }
+
+    fn alu_add_16(&mut self, a: u16, b: u16) -> u16 {
+        let c = if self.p.d {
+            self.dcd_add_16(a, b)
+        } else {
+            self.bin_add_16(a, b)
+        };
+        c
+    }
+
+    fn dcd_add_8(&mut self, a: u8, b: u8) -> u8 {
+        let a = a as u32;
+        let b = b as u32;
+        let mut c_l = (a & 0xF) + (b & 0xF) + self.p.c as u32;
+        if c_l >= 0x0A {
+            c_l = ((c_l + 0x06) & 0x0F) + 0x10;
+        }
+        let mut c = (a & 0xF0) + (b & 0xF0) + c_l;
+        if c >= 0xA0 {
+            c += 0x60;
+        }
+        self.p.c = c > 0xFF;
+        let d = (a as i8 as i16) + (b as i8 as i16) + self.p.c as i16;
+        self.p.v = (d < -128) || (d > 127);
+        c as u8
+    }
+
+    fn bin_add_8(&mut self, a: u8, b: u8) -> u8 {
+        let a = a as u32;
+        let b = b as u32;
+        let c = a + b + self.p.c as u32;
+        self.p.c = c > 0xFF;
+        let v = !(a ^ b) & (a ^ c) & 0x80 != 0;
+        self.p.v = v;
+        c as u8
+    }
+
+    fn dcd_add_16(&mut self, a: u16, b: u16) -> u16 {
+        let a = a as u32;
+        let b = b as u32;
+        let mut c_l = (a & 0xF) + (b & 0xF) + self.p.c as u32;
+        if c_l >= 0x0A {
+            c_l = ((c_l + 0x06) & 0x0F) + 0x10;
+        }
+        c_l = (a & 0xF0) + (b & 0xF0) + c_l;
+        if c_l >= 0xA0 {
+            c_l = ((c_l + 0x60) & 0xFF) + 0x100;
+        }
+        c_l = (a & 0xF00) + (b & 0xF00) + c_l;
+        if c_l >= 0xA00 {
+            c_l = ((c_l + 0x600) & 0xFFF) + 0x1000;
+        }
+        let mut c = (a & 0xF000) + (b & 0xF000) + c_l;
+        if c >= 0xA000 {
+            c += 0x6000;
+        }
+
+        self.p.c = c > 0xFFFF;
+        let d = (a as i16 as i32) + (b as i16 as i32) + self.p.c as i32;
+        self.p.v = (d < -32768) || (d > 32767);
+        c as u16
+    }
+
+    fn bin_add_16(&mut self, a: u16, b: u16) -> u16 {
+        let a = a as u32;
+        let b = b as u32;
+        let c = a + b + self.p.c as u32;
+        self.p.c = c > 0xFFFF;
+        let v = !(a ^ b) & (a ^ c) & 0x8000 != 0;
+        self.p.v = v;
+        c as u16
+    }
+
+    // fn alu_sub_8(&mut self, a: u8, b: u8) -> u8 {
+    //     let c = if self.p.d {
+    //         self.dcd_sub_8(a, b)
+    //     } else {
+    //         self.bin_sub_8(a, b)
+    //     };
+    //     c
+    // }
+
+    // fn dcd_sub_8(&mut self, a: u8, b: u8) -> u8 {
+    //     let a = a as i32;
+    //     let b = b as i32;
+    //     let borrow = !self.p.c as i32;
+    //     let c = a.wrapping_sub(b).wrapping_sub(borrow);
+    //     self.p.c =
+    // }
+
+    fn cmp_8(&mut self, a: u8, b: u8) -> u8 {
+        let (c, carry) = a.overflowing_sub(b);
+        self.p.c = !carry;
+        c
+    }
+
+    fn cmp_16(&mut self, a: u16, b: u16) -> u16 {
+        let (c, carry) = a.overflowing_sub(b);
+        self.p.c = !carry;
+        c
+    }
+
+    fn cmp_xy(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode, reg: Register) {
+        if self.is_memory_8bit() {
+            let a = match reg {
+                Register::X => self.x as u8,
+                Register::Y => self.y as u8,
+                _ => unreachable!(),
+            };
+            let b = self.get_warp_address(addressing_mode, ctx).read_8(ctx);
+            let (c, carry) = a.overflowing_sub(b);
+            self.p.c = !carry;
+            self.set_nz(c);
+        } else {
+            let a = match reg {
+                Register::X => self.x,
+                Register::Y => self.y,
+                _ => unreachable!(),
+            };
+            let b = self.get_warp_address(addressing_mode, ctx).read_16(ctx);
+            let (c, carry) = a.overflowing_sub(b);
+            self.p.c = !carry;
+            self.set_nz(c);
         }
     }
 
