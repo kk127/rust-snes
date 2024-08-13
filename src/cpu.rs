@@ -681,6 +681,11 @@ impl Cpu {
             ),
             0x55 => self.alu(ctx, AluType::Xor, AddressingMode::DirectX),
             0x56 => self.lsr_with_addressing(ctx, AddressingMode::DirectX),
+            0x57 => self.alu(
+                ctx,
+                AluType::Xor,
+                AddressingMode::DirectIndirectIndexedLongY,
+            ),
             0x58 => self.cli(ctx),
             0x59 => self.alu(ctx, AluType::Xor, AddressingMode::AbsoluteY),
             0x5A => self.phy(ctx),
