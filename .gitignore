@@ -1,3 +1,6 @@
 /target
 
+/roms
+/logs
+
 cargo.lock

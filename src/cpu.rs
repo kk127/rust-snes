@@ -1,8 +1,9 @@
 use crate::context;
-trait Context: context::Bus + context::Ppu + context::Timing {}
-impl<T: context::Bus + context::Ppu + context::Timing> Context for T {}
+trait Context: context::Bus + context::Timing {}
+impl<T: context::Bus + context::Timing> Context for T {}
 
 const CPU_CYCLE: u64 = 6;
+const RESET_VECTOR: u16 = 0xFFFC;
 
 pub struct Cpu {
     a: u16,
@@ -55,14 +56,14 @@ struct Status {
 impl From<u8> for Status {
     fn from(data: u8) -> Self {
         Status {
-            c: (data >> 7) & 1 == 1,
-            z: (data >> 6) & 1 == 1,
-            i: (data >> 5) & 1 == 1,
-            d: (data >> 4) & 1 == 1,
-            x: (data >> 3) & 1 == 1,
-            m: (data >> 2) & 1 == 1,
-            v: (data >> 1) & 1 == 1,
-            n: (data >> 0) & 1 == 1,
+            c: (data >> 0) & 1 == 1,
+            z: (data >> 1) & 1 == 1,
+            i: (data >> 2) & 1 == 1,
+            d: (data >> 3) & 1 == 1,
+            x: (data >> 4) & 1 == 1,
+            m: (data >> 5) & 1 == 1,
+            v: (data >> 6) & 1 == 1,
+            n: (data >> 7) & 1 == 1,
         }
     }
 }
@@ -70,14 +71,14 @@ impl From<u8> for Status {
 impl Into<u8> for Status {
     fn into(self) -> u8 {
         let mut data = 0;
-        data |= (self.c as u8) << 7;
-        data |= (self.z as u8) << 6;
-        data |= (self.i as u8) << 5;
-        data |= (self.d as u8) << 4;
-        data |= (self.x as u8) << 3;
-        data |= (self.m as u8) << 2;
-        data |= (self.v as u8) << 1;
-        data |= (self.n as u8) << 0;
+        data |= (self.c as u8) << 0;
+        data |= (self.z as u8) << 1;
+        data |= (self.i as u8) << 2;
+        data |= (self.d as u8) << 3;
+        data |= (self.x as u8) << 4;
+        data |= (self.m as u8) << 5;
+        data |= (self.v as u8) << 6;
+        data |= (self.n as u8) << 7;
         data
     }
 }
@@ -164,17 +165,17 @@ impl WarpAddress {
         }
     }
 
-    fn read_8(&self, context: &impl Context) -> u8 {
+    fn read_8(&mut self, context: &mut impl Context) -> u8 {
         context.bus_read(self.unwrap())
     }
 
-    fn read_16(&self, context: &impl Context) -> u16 {
+    fn read_16(&mut self, context: &mut impl Context) -> u16 {
         let lo = context.bus_read(self.unwrap()) as u16;
         let hi = context.bus_read(self.offset(1).unwrap()) as u16;
         hi << 8 | lo
     }
 
-    fn read_24(&self, context: &impl Context) -> u32 {
+    fn read_24(&mut self, context: &mut impl Context) -> u32 {
         let lo = context.bus_read(self.unwrap()) as u32;
         let hi = context.bus_read(self.offset(1).unwrap()) as u32;
         let bank = context.bus_read(self.offset(2).unwrap()) as u32;
@@ -241,6 +242,23 @@ enum BranchType {
 }
 
 impl Cpu {
+    pub fn reset(&mut self, ctx: &mut impl Context) {
+        self.pc = WarpAddress {
+            addr: RESET_VECTOR as u32,
+            mode: WarpMode::NoWarp,
+        }
+        .read_16(ctx);
+        self.a = 0;
+        self.x = 0;
+        self.y = 0;
+        self.s = 0x01FF;
+        self.p = Status::default();
+        self.d = 0;
+        self.db = 0;
+        self.pb = 0;
+        self.e = true;
+    }
+
     fn get_pc24(&self) -> u32 {
         (self.pb as u32) << 16 | self.pc as u32
     }
@@ -277,7 +295,7 @@ impl Cpu {
         self.push_8(ctx, data as u8);
     }
 
-    fn pop_8(&mut self, ctx: &impl Context) -> u8 {
+    fn pop_8(&mut self, ctx: &mut impl Context) -> u8 {
         if self.e {
             self.s = self.s & 0xFF00 | (self.s as u8).wrapping_add(1) as u16;
         } else {
@@ -286,7 +304,7 @@ impl Cpu {
         ctx.bus_read(self.s as u32)
     }
 
-    fn pop_16(&mut self, ctx: &impl Context) -> u16 {
+    fn pop_16(&mut self, ctx: &mut impl Context) -> u16 {
         let lo = self.pop_8(ctx) as u16;
         let hi = self.pop_8(ctx) as u16;
         hi << 8 | lo
@@ -574,8 +592,26 @@ impl Cpu {
         }
     }
 
-    fn excecute_instruction(&mut self, ctx: &mut impl Context) {
+    pub fn excecute_instruction(&mut self, ctx: &mut impl Context) {
         let opcode = self.fetch_8(ctx);
+        println!("PC: {:06x} opcode: {:02X} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}", 
+                    self.get_pc24() -1,
+                    opcode,
+                    self.a,
+                    self.x,
+                    self.y,
+                    self.s,
+                    self.d,
+                    self.db,
+                    if self.p.n { 'N' } else { 'n' },
+                    if self.p.v { 'V' } else { 'v' },
+                    if self.p.m { 'M' } else { 'm' },
+                    if self.p.x { 'X' } else { 'x' },
+                    if self.p.d { 'D' } else { 'd' },
+                    if self.p.i { 'I' } else { 'i' },
+                    if self.p.z { 'Z' } else { 'z' },
+                    if self.p.c { 'C' } else { 'c' },
+                    self.e);
         match opcode {
             0x01 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndexedIndirect),
             0x03 => self.alu(ctx, AluType::Or, AddressingMode::StackRelative),
@@ -1006,7 +1042,7 @@ impl Cpu {
     }
 
     fn lda(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_a_register_8bit() {
             let data = addr.read_8(ctx);
             self.set_nz(data);
@@ -1031,7 +1067,7 @@ impl Cpu {
     }
 
     fn ldx(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_xy_register_8bit() {
             let data = addr.read_8(ctx);
             self.set_nz(data);
@@ -1056,7 +1092,7 @@ impl Cpu {
     }
 
     fn ldy(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_xy_register_8bit() {
             let data = addr.read_8(ctx);
             self.set_nz(data);
@@ -1070,9 +1106,12 @@ impl Cpu {
 
     fn stz(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
+        println!("STZ addr: {:06x}", addr.addr);
         if self.is_memory_8bit() {
+            println!("STZ 8bit");
             addr.write_8(ctx, 0);
         } else {
+            println!("STZ 16bit");
             addr.write_16(ctx, 0);
         }
     }
@@ -1152,7 +1191,7 @@ impl Cpu {
     }
 
     fn pei(&mut self, ctx: &mut impl Context) {
-        let addr = self.get_warp_address(AddressingMode::Direct, ctx);
+        let mut addr = self.get_warp_address(AddressingMode::Direct, ctx);
         let data = addr.read_16(ctx);
         self.push_16(ctx, data);
     }
@@ -1402,7 +1441,7 @@ impl Cpu {
     }
 
     fn inc(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         ctx.elapse(CPU_CYCLE);
         if self.is_memory_8bit() {
             let data = addr.read_8(ctx);
@@ -1463,7 +1502,7 @@ impl Cpu {
     }
 
     fn dec(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         ctx.elapse(CPU_CYCLE);
         if self.is_memory_8bit() {
             let data = addr.read_8(ctx);
@@ -1524,7 +1563,7 @@ impl Cpu {
     }
 
     fn tsb(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_a_register_8bit() {
             let data = addr.read_8(ctx);
             self.p.z = (self.a as u8) & data == 0;
@@ -1537,7 +1576,7 @@ impl Cpu {
     }
 
     fn trb(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_a_register_8bit() {
             let data = addr.read_8(ctx);
             self.p.z = (self.a as u8) & data == 0;
@@ -1568,7 +1607,7 @@ impl Cpu {
 
     fn asl_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         ctx.elapse(CPU_CYCLE);
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_memory_8bit() {
             let data = addr.read_8(ctx);
             self.p.c = (data >> 7) & 1 == 1;
@@ -1603,7 +1642,7 @@ impl Cpu {
 
     fn lsr_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         ctx.elapse(CPU_CYCLE);
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_memory_8bit() {
             let data = addr.read_8(ctx);
             self.p.c = data & 1 == 1;
@@ -1640,7 +1679,7 @@ impl Cpu {
 
     fn rol_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         ctx.elapse(CPU_CYCLE);
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_memory_8bit() {
             let data = addr.read_8(ctx);
             let c = self.p.c as u8;
@@ -1679,7 +1718,7 @@ impl Cpu {
 
     fn ror_with_addressing(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         ctx.elapse(CPU_CYCLE);
-        let addr = self.get_warp_address(addressing_mode, ctx);
+        let mut addr = self.get_warp_address(addressing_mode, ctx);
         if self.is_memory_8bit() {
             let data = addr.read_8(ctx);
             let c = self.p.c as u8;
@@ -1863,8 +1902,12 @@ impl Cpu {
 
     fn rep(&mut self, ctx: &mut impl Context) {
         let data = self.fetch_8(ctx);
+        println!("rep: {:02X}", data);
+        println!("rep: {:08b}", data);
         ctx.elapse(CPU_CYCLE);
         let p: u8 = self.p.into();
+        println!("p:     {:08b}", p);
+        println!("!data: {:08b}", !data);
         self.p = (p & !data).into();
     }
 
