@@ -10,18 +10,18 @@ use crate::{bus, cartridge, counter, cpu, ppu};
 
 pub struct Context {
     cpu: cpu::Cpu,
-    inner1: Inner1,
+    pub inner1: Inner1,
 }
 
-struct Inner1 {
+pub struct Inner1 {
     bus: bus::Bus,
-    inner2: Inner2,
+    pub inner2: Inner2,
 }
 
-struct Inner2 {
-    ppu: ppu::Ppu,
+pub struct Inner2 {
+    pub ppu: ppu::Ppu,
     cartridge: cartridge::Cartridge,
-    inner: Inner3,
+    pub inner: Inner3,
 }
 struct Inner3 {
     timing: counter::Counter,
@@ -82,15 +82,23 @@ impl Timing for Inner1 {
     fn elapse(&mut self, clock: u64) {
         self.inner2.elapse(clock)
     }
+
+    fn now(&self) -> u64 {
+        self.inner2.now()
+    }
 }
 
 impl Ppu for Inner2 {
-    fn ppu_read(&mut self, addr: u32) -> u8 {
+    fn ppu_read(&mut self, addr: u16) -> u8 {
         self.ppu.read(addr, &mut self.inner)
     }
 
-    fn ppu_write(&mut self, addr: u32, data: u8) {
+    fn ppu_write(&mut self, addr: u16, data: u8) {
         self.ppu.write(addr, data, &mut self.inner)
+    }
+
+    fn ppu_tick(&mut self) {
+        self.ppu.tick(&mut self.inner)
     }
 }
 
@@ -108,11 +116,17 @@ impl Timing for Inner2 {
     fn elapse(&mut self, clock: u64) {
         self.inner.elapse(clock)
     }
+    fn now(&self) -> u64 {
+        self.inner.timing.now()
+    }
 }
 
 impl Timing for Inner3 {
     fn elapse(&mut self, clock: u64) {
         self.timing.elapse(clock)
+    }
+    fn now(&self) -> u64 {
+        self.timing.now()
     }
 }
 
@@ -163,12 +177,15 @@ pub trait Bus {
 }
 
 pub trait Ppu {
-    fn ppu_read(&mut self, addr: u32) -> u8;
-    fn ppu_write(&mut self, addr: u32, data: u8);
+    fn ppu_read(&mut self, addr: u16) -> u8;
+    fn ppu_write(&mut self, addr: u16, data: u8);
+
+    fn ppu_tick(&mut self);
 }
 
 pub trait Timing {
     fn elapse(&mut self, clock: u64);
+    fn now(&self) -> u64;
 }
 
 pub trait Cartridge {

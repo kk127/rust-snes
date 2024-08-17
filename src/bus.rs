@@ -1,6 +1,12 @@
+use std::iter::Cycle;
+
 use crate::context;
 trait Context: context::Ppu + context::Timing + context::Cartridge {}
 impl<T: context::Ppu + context::Timing + context::Cartridge> Context for T {}
+
+const CYCLE_FAST: u64 = 6;
+const CYCLE_SLOW: u64 = 8;
+const CYCLE_JOYPAD: u64 = 12;
 
 pub struct Bus {
     wram: [u8; 0x20000],
@@ -18,15 +24,35 @@ impl Bus {
         let offset = addr as u16;
         let data = match bank {
             00..=0x3F | 0x80..=0xBF => match offset {
-                0x0000..=0x1FFF => self.wram[offset as usize],
-                0x2100..=0x213F => ctx.ppu_read(addr),
+                0x0000..=0x1FFF => {
+                    ctx.elapse(CYCLE_SLOW);
+                    self.wram[offset as usize]
+                }
+                0x2100..=0x213F => {
+                    ctx.elapse(CYCLE_FAST);
+                    ctx.ppu_read(addr as u16)
+                }
 
-                0x8000..=0xFFFF => ctx.cartridge_read(addr),
-                _ => unimplemented!(),
+                0x8000..=0xFFFF => {
+                    // TODO CYCLE FASTの場合は？
+                    ctx.elapse(CYCLE_SLOW);
+                    ctx.cartridge_read(addr)
+                }
+                _ => unimplemented!("Read unimplemeted, bank: {:x}, offset: {:x}", bank, offset),
             },
-            0x40..=0x7D => ctx.cartridge_read(addr),
-            0x7E..=0x7F => self.wram[(addr & 0x1FFFF) as usize],
-            0xC0..=0xFF => ctx.cartridge_read(addr),
+            0x40..=0x7D => {
+                ctx.elapse(CYCLE_SLOW);
+                ctx.cartridge_read(addr)
+            }
+            0x7E..=0x7F => {
+                ctx.elapse(CYCLE_SLOW);
+                self.wram[(addr & 0x1FFFF) as usize]
+            }
+            0xC0..=0xFF => {
+                // TODO CYCLE FASTの場合は？
+                ctx.elapse(CYCLE_SLOW);
+                ctx.cartridge_read(addr)
+            }
             _ => unimplemented!(),
         };
         data
@@ -37,11 +63,23 @@ impl Bus {
         let offset = addr as u16;
         match bank {
             0x00..=0x3F | 0x80..=0xBF => match offset {
-                0x0000..=0x1FFF => self.wram[offset as usize] = data,
-                0x2100..=0x213F => ctx.ppu_write(addr, data),
-                0x8000..=0xFFFF => ctx.cartridge_write(addr, data),
+                0x0000..=0x1FFF => {
+                    ctx.elapse(CYCLE_SLOW);
+                    self.wram[offset as usize] = data;
+                }
+                0x2100..=0x213F => {
+                    ctx.elapse(CYCLE_FAST);
+                    ctx.ppu_write(addr as u16, data);
+                }
+                0x8000..=0xFFFF => {
+                    // TODO CYCLE FASTの場合は？
+                    ctx.elapse(CYCLE_SLOW);
+                    ctx.cartridge_write(addr, data);
+                }
                 // _ => unimplemented!(),
-                _ => println!("Write unimplemeted, bank: {:x}, offset: {:x}", bank, offset),
+                _ => {
+                    ctx.elapse(CYCLE_SLOW);
+                } //println!("Write unimplemeted, bank: {:x}, offset: {:x}", bank, offset),
             },
             0x40..=0x7D => ctx.cartridge_write(addr, data),
             0x7E..=0x7F => self.wram[(addr & 0x1FFFF) as usize] = data,

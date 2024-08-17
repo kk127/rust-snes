@@ -1,5 +1,5 @@
 pub struct Counter {
-    counter: u32,
+    counter: u64,
 }
 
 impl Default for Counter {
@@ -10,6 +10,10 @@ impl Default for Counter {
 
 impl Counter {
     pub fn elapse(&mut self, clock: u64) {
-        self.counter += clock as u32;
+        self.counter += clock;
+    }
+
+    pub fn now(&self) -> u64 {
+        self.counter
     }
 }

@@ -1,4 +1,6 @@
 use crate::context;
+
+use log::debug;
 trait Context: context::Bus + context::Timing {}
 impl<T: context::Bus + context::Timing> Context for T {}
 
@@ -594,7 +596,8 @@ impl Cpu {
 
     pub fn excecute_instruction(&mut self, ctx: &mut impl Context) {
         let opcode = self.fetch_8(ctx);
-        println!("PC: {:06x} opcode: {:02X} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}", 
+        // println!("cpu counter: {}", ctx.now());
+        debug!("PC: {:06x} opcode: {:02X} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
                     self.get_pc24() -1,
                     opcode,
                     self.a,

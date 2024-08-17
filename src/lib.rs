@@ -1,4 +1,4 @@
-use context::Cpu;
+use context::{Cpu, Ppu};
 
 mod bus;
 mod cartridge;
@@ -8,7 +8,7 @@ mod cpu;
 mod ppu;
 
 pub struct Snes {
-    context: context::Context,
+    pub context: context::Context,
 }
 
 impl Snes {
@@ -21,6 +21,20 @@ impl Snes {
     pub fn run(&mut self) {
         loop {
             self.context.exce_one();
+        }
+    }
+
+    pub fn exec_frame(&mut self) {
+        let frame = self.context.inner1.inner2.ppu.frame_number;
+        // println!("~~~~~~frame_number: {}", frame);
+        // println!("ooooooooooooooooooooooooooooooooooooooo");
+        while frame == self.context.inner1.inner2.ppu.frame_number {
+            self.context.exce_one();
+            self.context.inner1.inner2.ppu_tick();
+            // println!(
+            //     "ppu frame_number: {}",
+            //     self.context.inner1.inner2.ppu.frame_number
+            // );
         }
     }
 }
