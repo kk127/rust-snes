@@ -38,7 +38,12 @@ impl Bus {
                     ctx.elapse(CYCLE_SLOW);
                     ctx.cartridge_read(addr)
                 }
-                _ => unimplemented!("Read unimplemeted, bank: {:x}, offset: {:x}", bank, offset),
+                // TODO
+                // _ => unimplemented!("Read unimplemeted, bank: {:x}, offset: {:x}", bank, offset),
+                _ => {
+                    println!("Read unimplemeted, bank: {:x}, offset: {:x}", bank, offset);
+                    0
+                }
             },
             0x40..=0x7D => {
                 ctx.elapse(CYCLE_SLOW);

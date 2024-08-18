@@ -143,7 +143,7 @@ impl Ppu {
             0x2118 | 0x2119 => {
                 let offset = addr - 0x2118;
                 let vram_addr = self.vram_mode.get_transration(self.vram_addr) * 2 + offset;
-                debug!("vram_addr: 0x{:x}, data: 0x{:x}", vram_addr, data);
+                // debug!("vram_addr: 0x{:x}, data: 0x{:x}", vram_addr, data);
                 self.vram[vram_addr as usize] = data;
                 if self.vram_mode.is_incremet_after_high_bit() == (offset == 1) {
                     self.vram_addr = (self.vram_addr + self.vram_mode.get_inc()) & 0x7FFF;
@@ -172,6 +172,7 @@ impl Ppu {
     }
 
     pub fn tick(&mut self, ctx: &mut impl Context) {
+        // println!("cgram: {:?}", self.cgram);
         loop {
             if self.counter + 4 > ctx.now() {
                 break;
@@ -216,10 +217,7 @@ impl Ppu {
         let bg_map_addr = (self.bg_screen_base_and_size[0].screen_base() as usize * 2048
             + bg_map_index as usize * 2)
             & 0xFFFE;
-        // println!(
-        //     "bg_map_base: 0x{:x}",
-        //     self.bg_screen_base_and_size[0].screen_base() as u32 * 2048
-        // );
+        // println!("bg_map_base: 0x{:x}", bg_map_addr);
 
         let bg_map_entry = BGMapEntry::from_bytes([
             self.vram[bg_map_addr as usize],
