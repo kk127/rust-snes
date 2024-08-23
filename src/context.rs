@@ -1,4 +1,4 @@
-use crate::{bus, cartridge, counter, cpu, ppu};
+use crate::{bus, cartridge, counter, cpu, interrupt, ppu};
 
 // struct Context {
 //     cpu: cpu::Cpu,
@@ -25,6 +25,7 @@ pub struct Inner2 {
 }
 struct Inner3 {
     timing: counter::Counter,
+    interrupt: interrupt::Interrupt,
 }
 
 // impl Context {
@@ -50,6 +51,7 @@ impl Context {
                     cartridge: cartridge::Cartridge::new(rom),
                     inner: Inner3 {
                         timing: counter::Counter::default(),
+                        interrupt: interrupt::Interrupt::default(),
                     },
                 },
             },
@@ -76,6 +78,10 @@ impl Bus for Inner1 {
     fn bus_write(&mut self, addr: u32, data: u8) {
         self.bus.write(addr, data, &mut self.inner2)
     }
+
+    fn bus_tick(&mut self) {
+        self.bus.tick(&mut self.inner2);
+    }
 }
 
 impl Timing for Inner1 {
@@ -85,6 +91,36 @@ impl Timing for Inner1 {
 
     fn now(&self) -> u64 {
         self.inner2.now()
+    }
+}
+
+impl Interrupt for Inner1 {
+    fn get_nmi_flag(&mut self) -> bool {
+        self.inner2.get_nmi_flag()
+    }
+
+    fn set_nmi_flag(&mut self, flag: bool) {
+        self.inner2.set_nmi_flag(flag)
+    }
+
+    fn nmi_occurred(&self) -> bool {
+        self.inner2.nmi_occurred()
+    }
+
+    fn set_nmi_enable(&mut self, flag: bool) {
+        self.inner2.set_nmi_enable(flag)
+    }
+
+    fn set_hv_irq_enable(&mut self, val: u8) {
+        self.inner2.set_hv_irq_enable(val)
+    }
+
+    fn get_hv_irq_enable(&self) -> u8 {
+        self.inner2.get_hv_irq_enable()
+    }
+
+    fn set_joypad_enable(&mut self, flag: bool) {
+        self.inner2.set_joypad_enable(flag)
     }
 }
 
@@ -121,12 +157,72 @@ impl Timing for Inner2 {
     }
 }
 
+impl Interrupt for Inner2 {
+    fn get_nmi_flag(&mut self) -> bool {
+        self.inner.interrupt.get_nmi_flag()
+    }
+
+    fn set_nmi_flag(&mut self, flag: bool) {
+        self.inner.interrupt.set_nmi_flag(flag)
+    }
+
+    fn nmi_occurred(&self) -> bool {
+        self.inner.interrupt.nmi_occurred()
+    }
+
+    fn get_hv_irq_enable(&self) -> u8 {
+        self.inner.interrupt.get_hv_irq_enable()
+    }
+
+    fn set_nmi_enable(&mut self, flag: bool) {
+        self.inner.interrupt.set_nmi_enable(flag)
+    }
+
+    fn set_hv_irq_enable(&mut self, val: u8) {
+        self.inner.interrupt.set_hv_irq_enable(val)
+    }
+
+    fn set_joypad_enable(&mut self, flag: bool) {
+        self.inner.interrupt.set_joypad_enable(flag)
+    }
+}
+
 impl Timing for Inner3 {
     fn elapse(&mut self, clock: u64) {
         self.timing.elapse(clock)
     }
     fn now(&self) -> u64 {
         self.timing.now()
+    }
+}
+
+impl Interrupt for Inner3 {
+    fn get_nmi_flag(&mut self) -> bool {
+        self.interrupt.get_nmi_flag()
+    }
+
+    fn set_nmi_flag(&mut self, flag: bool) {
+        self.interrupt.set_nmi_flag(flag)
+    }
+
+    fn nmi_occurred(&self) -> bool {
+        self.interrupt.nmi_occurred()
+    }
+
+    fn set_nmi_enable(&mut self, flag: bool) {
+        self.interrupt.set_nmi_enable(flag)
+    }
+
+    fn set_hv_irq_enable(&mut self, val: u8) {
+        self.interrupt.set_hv_irq_enable(val)
+    }
+
+    fn get_hv_irq_enable(&self) -> u8 {
+        self.interrupt.get_hv_irq_enable()
+    }
+
+    fn set_joypad_enable(&mut self, flag: bool) {
+        self.interrupt.set_joypad_enable(flag)
     }
 }
 
@@ -174,6 +270,8 @@ pub trait Cpu {
 pub trait Bus {
     fn bus_read(&mut self, addr: u32) -> u8;
     fn bus_write(&mut self, addr: u32, data: u8);
+
+    fn bus_tick(&mut self);
 }
 
 pub trait Ppu {
@@ -191,4 +289,14 @@ pub trait Timing {
 pub trait Cartridge {
     fn cartridge_read(&mut self, addr: u32) -> u8;
     fn cartridge_write(&mut self, addr: u32, data: u8);
+}
+
+pub trait Interrupt {
+    fn get_nmi_flag(&mut self) -> bool;
+    fn set_nmi_flag(&mut self, flag: bool);
+    fn nmi_occurred(&self) -> bool;
+    fn set_nmi_enable(&mut self, flag: bool);
+    fn set_hv_irq_enable(&mut self, val: u8);
+    fn get_hv_irq_enable(&self) -> u8;
+    fn set_joypad_enable(&mut self, flag: bool);
 }

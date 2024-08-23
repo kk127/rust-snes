@@ -13,40 +13,24 @@ impl Cartridge {
 
 impl Cartridge {
     pub fn read(&self, addr: u32) -> u8 {
-        let bank = addr >> 16;
-        // TODO
-        let mut addr = (addr as u16) as usize;
-        // println!("bank: {:x}, addr: {:x}", bank, addr);
-        // 32KiBのときはミラー
-        if addr >= 0x8000 {
-            addr -= 0x8000;
+        match self.rom.header.map_mode {
+            MapMode::LoRom => {
+                // let offset = (addr as usize >> 16) & 0x7;
+                // let bank_num_per_rom_size = self.rom.header.rom_size / 32;
+                // let rom_offset = offset % bank_num_per_rom_size;
+                // let page_offset = (addr & 0x00FFFF) as usize - 0x8000;
+                // let rom_addr = rom_offset * 0x8000 + page_offset;
+                let rom_addr = ((addr & 0x00FFFF) as usize - 0x8000) % self.rom.rom.len();
+                self.rom.rom[rom_addr]
+            }
+            _ => unimplemented!(),
         }
-        // println!("after addr: {:x}", addr);
-
-        let val = match bank {
-            0x00..=0x3F => self.rom.rom[addr as usize],
-            0x40..=0x7D => {
-                let index = addr as usize - 0x400000;
-                self.rom.rom[index]
-            }
-            0x80..=0xBF => {
-                let index = addr as usize - 0x800000;
-                self.rom.rom[index]
-            }
-            0xC0..=0xFF => {
-                let index = addr as usize - 0xC00000;
-                self.rom.rom[index]
-            }
-            _ => unreachable!(),
-        };
-        // println!("val: {:x}", val);
-        val
     }
 
     pub fn write(&mut self, addr: u32, data: u8) {
         let bank = addr >> 16;
         match bank {
-            0x00..=0x3F => self.rom.rom[addr as usize] = data,
+            0x00..=0x3F => self.rom.rom[addr as usize - 0x008000] = data,
             0x40..=0x7D => {
                 let index = addr as usize - 0x400000;
                 self.rom.rom[index] = data;
@@ -103,9 +87,10 @@ fn parse_header(bytes: &[u8], base: usize) -> Result<Header, String> {
     let checksum_complement =
         u16::from_le_bytes(bytes[base + 0xDC..base + 0xDC + 2].try_into().unwrap());
     let checksum = u16::from_le_bytes(bytes[base + 0xDE..base + 0xDE + 2].try_into().unwrap());
-    if checksum_complement != !checksum {
-        return Err("Checksum error".to_string());
-    }
+    // TODO: Commnet out for CPUADC test
+    // if checksum_complement != !checksum {
+    //     return Err("Checksum error".to_string());
+    // }
 
     let title = match std::str::from_utf8(&bytes[base + 0xC0..base + 0xC0 + 21]) {
         Ok(title) => title.trim().to_string(),

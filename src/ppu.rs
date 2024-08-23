@@ -2,8 +2,8 @@ use crate::context;
 use modular_bitfield::prelude::*;
 
 use log::debug;
-trait Context: context::Timing {}
-impl<T: context::Timing> Context for T {}
+trait Context: context::Timing + context::Interrupt {}
+impl<T: context::Timing + context::Interrupt> Context for T {}
 
 pub struct Ppu {
     pub screen: [u16; 256 * 224],
@@ -17,10 +17,12 @@ pub struct Ppu {
     cgram: [u16; 0x100], // 512B
 
     // Ppu control registers
-    display_control_1: u8,      // $2100
-    display_control_2: u8,      // $2133
-    main_screen_desination: u8, // $212C
-    sub_screen_destination: u8, // $212D
+    display_control_1: u8,                                      // $2100
+    object_size_and_base: ObjectSizAndBase,                     // $2101
+    oam_addr_and_priority_rotation: OamAddrAndPriorityRotation, // $2102
+    display_control_2: u8,                                      // $2133
+    main_screen_desination: u8,                                 // $212C
+    sub_screen_destination: u8,                                 // $212D
 
     // BG control registers
     bg_mode_and_character_size: u8,                 // $2105
@@ -35,17 +37,18 @@ pub struct Ppu {
     vram_addr: u16,             // $2116, $2117
     palette_cgram_addr: u16,    // $2121
     palette_cgram_low_data: u8,
+
     // Rotational and scaling registers
     // TODO
-
+    rotation_scaling_param: RotationScalingParam,
+    m7_old: u8,
     // Sprite control registers
     // TODO
 
     // Window control registers
-    // TODO
-
+    window: Window,
     // Color math registers
-    // TODO
+    color_math: ColorMath,
 }
 
 #[bitfield(bits = 8)]
@@ -92,6 +95,8 @@ impl Default for Ppu {
             cgram: [0; 0x100],
             display_control_1: 0,
             display_control_2: 0,
+            object_size_and_base: Default::default(),
+            oam_addr_and_priority_rotation: Default::default(),
             main_screen_desination: 0,
             sub_screen_destination: 0,
             bg_mode_and_character_size: 0,
@@ -104,19 +109,32 @@ impl Default for Ppu {
             vram_addr: 0,
             palette_cgram_addr: 0,
             palette_cgram_low_data: 0,
+
+            rotation_scaling_param: Default::default(),
+            m7_old: 0,
+
+            window: Default::default(),
+
+            color_math: Default::default(),
         }
     }
 }
 
 impl Ppu {
     pub fn read(&mut self, addr: u16, ctx: &mut impl Context) -> u8 {
-        println!("ppu read: {:x}", addr);
-        0
+        unimplemented!("Read unimplemeted, addr: {:x}", addr);
     }
 
     pub fn write(&mut self, addr: u16, data: u8, ctx: &mut impl Context) {
+        debug!("PPU write, addr: {:x}, data: {:x}", addr, data);
         match addr {
             0x2100 => self.display_control_1 = data,
+            0x2101 => self.object_size_and_base.bytes[0] = data,
+            0x2102 | 0x2103 => {
+                let index = (addr - 0x2102) as usize;
+                self.oam_addr_and_priority_rotation.bytes[index] = data;
+                // TODO: additional copy
+            }
             0x2105 => self.bg_mode_and_character_size = data,
             0x2106 => self.mosaic_size_and_enable = data,
             0x2107 | 0x2108 | 0x2109 | 0x210A => {
@@ -139,15 +157,48 @@ impl Ppu {
 
             0x2115 => self.vram_mode.bytes[0] = data,
             0x2116 => self.vram_addr = self.vram_addr & 0x7F00 | data as u16,
-            0x2117 => self.vram_addr = self.vram_addr & 0x00FF | (data as u16) << 8,
+            0x2117 => self.vram_addr = self.vram_addr & 0x00FF | ((data & 0x7F) as u16) << 8,
             0x2118 | 0x2119 => {
                 let offset = addr - 0x2118;
                 let vram_addr = self.vram_mode.get_transration(self.vram_addr) * 2 + offset;
                 // debug!("vram_addr: 0x{:x}, data: 0x{:x}", vram_addr, data);
+                debug!(
+                    "VRAM: {:04X} = {data:02X}, addr: {:04X}",
+                    self.vram_addr, vram_addr
+                );
                 self.vram[vram_addr as usize] = data;
                 if self.vram_mode.is_incremet_after_high_bit() == (offset == 1) {
                     self.vram_addr = (self.vram_addr + self.vram_mode.get_inc()) & 0x7FFF;
                 }
+            }
+            0x211B => {
+                self.rotation_scaling_param.a = (data as u16) << 8 | self.m7_old as u16;
+                self.m7_old = data;
+                // TODO additional process
+            }
+            0x211C => {
+                self.rotation_scaling_param.b = (data as u16) << 8 | self.m7_old as u16;
+                self.m7_old = data;
+                // TODO additional process
+            }
+            0x211D => {
+                self.rotation_scaling_param.c = (data as u16) << 8 | self.m7_old as u16;
+                self.m7_old = data;
+                // TODO additional process
+            }
+            0x211E => {
+                self.rotation_scaling_param.d = (data as u16) << 8 | self.m7_old as u16;
+                self.m7_old = data;
+
+                // TODO additional process
+            }
+            0x211F => {
+                self.rotation_scaling_param.x = (data as u16) << 8 | self.m7_old as u16;
+                self.m7_old = data;
+            }
+            0x2120 => {
+                self.rotation_scaling_param.y = (data as u16) << 8 | self.m7_old as u16;
+                self.m7_old = data;
             }
             0x2121 => self.palette_cgram_addr = data as u16 * 2,
             0x2122 => {
@@ -159,14 +210,31 @@ impl Ppu {
                 }
                 self.palette_cgram_addr = (self.palette_cgram_addr + 1) & 0x1FF;
             }
+            0x2123 => self.window.bg12_mask_settings = data,
+            0x2124 => self.window.bg34_mask_settings = data,
+            0x2125 => self.window.obj_mask_settings = data,
+            0x2126 => self.window.window1_left_position = data,
+            0x2127 => self.window.window1_right_position = data,
+            0x2128 => self.window.window2_left_position = data,
+            0x2129 => self.window.window2_right_position = data,
+            0x212A => self.window.window1_mask_logic = data,
+            0x212B => self.window.window2_mask_logic = data,
+
+            0x212E => self.window.main_area_screen_disable = data,
+            0x212F => self.window.sub_area_screen_disable = data,
 
             0x212C => self.main_screen_desination = data,
             0x212D => self.sub_screen_destination = data,
 
+            0x2130 => self.color_math.control_register_a = data,
+            0x2131 => self.color_math.control_register_b = data,
+            // TODO additional process
+            0x2132 => self.color_math.sub_screen_backdrop_color = data,
             0x2133 => self.display_control_2 = data,
 
             _ => {
-                println!("Write unimplemeted, addr: {:x}, data: {:x}", addr, data);
+                // println!("Write unimplemeted, addr: {:x}, data: {:x}", addr, data);
+                debug!("Write unimplemeted, addr: {:x}, data: {:x}", addr, data);
             }
         }
     }
@@ -187,11 +255,35 @@ impl Ppu {
             if self.x == 340 {
                 self.x = 0;
                 self.y += 1;
+
                 if self.y == 262 {
                     self.y = 0;
+
+                    ctx.set_nmi_flag(false);
+
                     self.frame_number += 1;
+                    debug!("frame_number: {}", self.frame_number);
+                    debug!("cgaram: {:?}", self.cgram);
+                    debug!("vram: {:?}", self.vram);
+                    // 0xf800..0xf800 + 32 * 32
+                    for i in 0..32 {
+                        for j in 0..32 {
+                            let addr = 0xf800 + i * 32 + j * 2;
+                            debug!(
+                                "vram[0x{:x}]: 0x{:x}",
+                                addr,
+                                (self.vram[addr as usize + 1] as u16) << 8
+                                    | self.vram[addr as usize] as u16
+                            );
+                        }
+                    }
                 }
             }
+
+            if self.x == 0 && self.y == 225 {
+                ctx.set_nmi_flag(true);
+            }
+
             if self.x == 22 && (1..225).contains(&self.y) {
                 self.render_line(self.y - 1);
             }
@@ -217,15 +309,17 @@ impl Ppu {
         let bg_map_addr = (self.bg_screen_base_and_size[0].screen_base() as usize * 2048
             + bg_map_index as usize * 2)
             & 0xFFFE;
+        // debug!("x: {}, y: {}, bg_map_base: 0x{:x}", x, y, bg_map_addr);
         // println!("bg_map_base: 0x{:x}", bg_map_addr);
 
         let bg_map_entry = BGMapEntry::from_bytes([
             self.vram[bg_map_addr as usize],
             self.vram[bg_map_addr as usize + 1],
         ]);
+        // debug!("bg_map_entry: {:?}", bg_map_entry);
         let tile_addr =
-            // (self.bg_character_base & 0x000F) * 4096 + bg_map_entry.character_number() as u16 * 16;
             (self.bg_character_base & 0x000F) * 4096 + bg_map_entry.character_number() as u16 * 16;
+        // (self.bg_character_base & 0x000F) * 8 * 1024 + bg_map_entry.character_number() as u16 * 16;
         // debug!("x: {x}, y: {y}, tile_addr: 0x{:x}", tile_addr);
         // debug!("character_number: {:x}", bg_map_entry.character_number());
         // debug!("pallet_number: {:x}", bg_map_entry.pallet_number());
@@ -257,6 +351,7 @@ impl Ppu {
 }
 
 #[bitfield(bits = 16)]
+#[derive(Debug)]
 struct BGMapEntry {
     character_number: B10,
     pallet_number: B3,
@@ -270,4 +365,68 @@ struct BGMapEntry {
 struct BGScreenBaseSize {
     screen_size: B2,
     screen_base: B6,
+}
+
+#[bitfield(bits = 8)]
+#[derive(Default)]
+struct ObjectSizAndBase {
+    base_addr_for_obj_tiles: B3,
+    gap_between_obj: B2,
+    obj_size_selection: ObjectSizeSelection,
+}
+
+#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
+#[bits = 3]
+enum ObjectSizeSelection {
+    Size8x8_16x16 = 0,
+    Size8x8_32x32 = 1,
+    Size8x8_64x64 = 2,
+    Size16x16_32x32 = 3,
+    Size16x16_64x64 = 4,
+    Size32x32_64x64 = 5,
+    Size16x32_32x64 = 6, // Undocumented
+    Size16x32_32x32 = 7, // Undocumented
+}
+
+#[bitfield(bits = 16)]
+#[derive(Default)]
+struct OamAddrAndPriorityRotation {
+    addr: B9,
+    __: B6,
+    priority_rotation: bool,
+}
+
+#[derive(Default)]
+struct RotationScalingParam {
+    a: u16,
+    b: u16,
+    c: u16,
+    d: u16,
+    x: u16,
+    y: u16,
+}
+
+#[derive(Default)]
+struct Window {
+    window1_left_position: u8,
+    window1_right_position: u8,
+    window2_left_position: u8,
+    window2_right_position: u8,
+
+    bg12_mask_settings: u8,
+    bg34_mask_settings: u8,
+    obj_mask_settings: u8,
+
+    window1_mask_logic: u8,
+    window2_mask_logic: u8,
+
+    main_area_screen_disable: u8,
+    sub_area_screen_disable: u8,
+}
+
+#[derive(Default)]
+struct ColorMath {
+    control_register_a: u8,
+    control_register_b: u8,
+    sub_screen_backdrop_color: u8,
 }

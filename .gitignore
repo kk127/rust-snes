@@ -4,3 +4,5 @@
 /logs
 
 cargo.lock
+
+.DS_Store

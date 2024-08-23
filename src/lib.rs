@@ -1,10 +1,11 @@
-use context::{Cpu, Ppu};
+use context::{Bus, Cpu, Ppu};
 
 mod bus;
 mod cartridge;
 mod context;
 mod counter;
 mod cpu;
+mod interrupt;
 mod ppu;
 
 pub struct Snes {
@@ -31,6 +32,7 @@ impl Snes {
         while frame == self.context.inner1.inner2.ppu.frame_number {
             self.context.exce_one();
             self.context.inner1.inner2.ppu_tick();
+            self.context.inner1.bus_tick();
             // println!(
             //     "ppu frame_number: {}",
             //     self.context.inner1.inner2.ppu.frame_number

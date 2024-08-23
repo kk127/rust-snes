@@ -3,7 +3,9 @@ use rust_snes::Snes;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
+use sdl2::rect::Rect;
 use std::time::Duration;
+
 fn main() -> Result<(), String> {
     env_logger::init();
     let rom_path = std::env::args()
@@ -15,14 +17,18 @@ fn main() -> Result<(), String> {
     let sdl2_context = sdl2::init()?;
     let video_subsystem = sdl2_context.video()?;
 
+    // ウィンドウサイズを512x448に変更
     let window = video_subsystem
-        .window("rust-snes", 256, 224)
+        .window("rust-snes", 512, 448)
         .position_centered()
         .resizable()
         .build()
         .unwrap();
 
     let mut canvas = window.into_canvas().build().unwrap();
+
+    // 論理的な描画サイズを256x224に設定
+    canvas.set_logical_size(256, 224).unwrap();
 
     let mut event_pump = sdl2_context.event_pump()?;
 
@@ -46,19 +52,19 @@ fn main() -> Result<(), String> {
 
         snes.exec_frame();
         let screen = snes.context.inner1.inner2.ppu.screen;
-        // println!("screen: {:?}", screen);
+
         for x in 0..256 {
             for y in 0..224 {
                 let color = screen[y * 256 + x];
-                // println!("color: {}", color);
                 let mut r = color & 0x1F;
                 let mut g = (color >> 5) & 0x1F;
                 let mut b = (color >> 10) & 0x1F;
                 r = r << 3 | r >> 2;
                 g = g << 3 | g >> 2;
                 b = b << 3 | b >> 2;
-                // println!("b: {}, g: {}, r: {}", b, g, r);
                 canvas.set_draw_color(Color::RGB(r as u8, g as u8, b as u8));
+
+                // 倍のウィンドウサイズに描画するためのスケーリング
                 canvas.draw_point((x as i32, y as i32)).unwrap();
             }
         }
@@ -67,13 +73,8 @@ fn main() -> Result<(), String> {
         canvas.present();
 
         // 16ms待機して約60FPSを維持
-        // std::thread::sleep(Duration::from_millis(1000));
         std::thread::sleep(Duration::from_millis(16));
     }
 
-    // loop {
-    // snes.exec_frame();
-    // let screen = snes.context.inner1.inner2.ppu.screen;
-    // }
     Ok(())
 }
