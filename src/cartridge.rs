@@ -2,12 +2,14 @@ use log::info;
 
 pub struct Cartridge {
     rom: Rom,
+    sram: Vec<u8>,
 }
 
 impl Cartridge {
     pub fn new(rom: Vec<u8>) -> Cartridge {
         let rom = Rom::from_bytes(&rom).expect("Failed to parse ROM");
-        Cartridge { rom }
+        let sram = vec![0; rom.header.ram_size * 1024];
+        Cartridge { rom, sram }
     }
 }
 
@@ -15,35 +17,150 @@ impl Cartridge {
     pub fn read(&self, addr: u32) -> u8 {
         match self.rom.header.map_mode {
             MapMode::LoRom => {
-                // let offset = (addr as usize >> 16) & 0x7;
-                // let bank_num_per_rom_size = self.rom.header.rom_size / 32;
-                // let rom_offset = offset % bank_num_per_rom_size;
-                // let page_offset = (addr & 0x00FFFF) as usize - 0x8000;
-                // let rom_addr = rom_offset * 0x8000 + page_offset;
-                let rom_addr = ((addr & 0x00FFFF) as usize - 0x8000) % self.rom.rom.len();
-                self.rom.rom[rom_addr]
+                let bank = (addr >> 16) as usize;
+                let offset = (addr & 0xFFFF) as usize;
+                match bank {
+                    0x00..=0x7D => self.read(addr + 0x800000),
+                    0x7E..=0x7F => unreachable!(),
+                    0x80..=0xFF => match offset {
+                        0x0000..=0x7FFF => match bank {
+                            0x80..=0xBF => unreachable!(),
+                            0xC0..=0xEF => self.read(addr + 0x8000),
+                            0xF0..=0xFF => {
+                                let sram_offset = (bank - 0xF0) * 1024 * 32 + offset;
+                                let sram_index = sram_offset % self.sram.len();
+                                self.sram[sram_index]
+                            }
+                            _ => unreachable!(),
+                        },
+                        0x8000..=0xFFFF => {
+                            let rom_offset = (bank - 0x80) * 1024 * 32 + (offset - 0x8000);
+                            let rom_index = rom_offset % self.rom.rom.len();
+                            self.rom.rom[rom_index]
+                        }
+                        _ => unreachable!(),
+                    },
+
+                    _ => unreachable!(),
+                }
+            }
+            MapMode::HiRom => {
+                let bank = (addr >> 16) as usize;
+                let offset = (addr & 0xFFFF) as usize;
+                match bank {
+                    0x00..=0x3F => match offset {
+                        0x0000..=0x5FFF => unreachable!(),
+                        0x6000..=0x7FFF => {
+                            let sram_offset = bank * 1024 * 8 + (offset - 0x6000);
+                            let sram_index = sram_offset % self.sram.len();
+                            self.sram[sram_index]
+                        }
+                        0x8000..=0xFFFF => {
+                            let rom_index = (addr as usize) % self.rom.rom.len();
+                            self.rom.rom[rom_index]
+                        }
+                        _ => unreachable!(),
+                    },
+                    0x40..=0x7D => {
+                        let rom_index = (addr as usize - 0x400000) % self.rom.rom.len();
+                        self.rom.rom[rom_index]
+                    }
+                    0x80..=0xBF => match offset {
+                        0x0000..=0x5FFF => unreachable!(),
+                        0x6000..=0x7FFF => {
+                            let sram_offset = (bank - 0x80) * 1024 * 8 + (offset - 0x6000);
+                            let sram_index = sram_offset % self.sram.len();
+                            self.sram[sram_index]
+                        }
+                        0x8000..=0xFFFF => {
+                            let rom_index = (addr as usize - 0x800000) % self.rom.rom.len();
+                            self.rom.rom[rom_index]
+                        }
+                        _ => unreachable!(),
+                    },
+                    0xC0..=0xFF => {
+                        let rom_index = (addr as usize - 0xC00000) % self.rom.rom.len();
+                        self.rom.rom[rom_index]
+                    }
+                    _ => unreachable!(),
+                }
             }
             _ => unimplemented!(),
         }
     }
 
     pub fn write(&mut self, addr: u32, data: u8) {
-        let bank = addr >> 16;
-        match bank {
-            0x00..=0x3F => self.rom.rom[addr as usize - 0x008000] = data,
-            0x40..=0x7D => {
-                let index = addr as usize - 0x400000;
-                self.rom.rom[index] = data;
+        match self.rom.header.map_mode {
+            MapMode::LoRom => {
+                let bank = (addr >> 16) as usize;
+                let offset = (addr & 0xFFFF) as usize;
+                match bank {
+                    0x00..=0x7D => self.write(addr + 0x800000, data),
+                    0x7E..=0x7F => unreachable!(),
+                    0x80..=0xFF => match offset {
+                        0x0000..=0x7FFF => match bank {
+                            0x80..=0xBF => unreachable!(),
+                            0xC0..=0xEF => self.write(addr + 0x8000, data),
+                            0xF0..=0xFF => {
+                                let sram_offset = (bank - 0xF0) * 1024 * 32 + offset;
+                                let sram_index = sram_offset % self.sram.len();
+                                self.sram[sram_index] = data;
+                            }
+                            _ => unreachable!(),
+                        },
+                        0x8000..=0xFFFF => {
+                            let rom_offset = (bank - 0x80) * 1024 * 32 + (offset - 0x8000);
+                            let rom_index = rom_offset % self.rom.rom.len();
+                            self.rom.rom[rom_index] = data;
+                        }
+                        _ => unreachable!(),
+                    },
+
+                    _ => unreachable!(),
+                }
             }
-            0x80..=0xBF => {
-                let index = addr as usize - 0x800000;
-                self.rom.rom[index] = data;
+            MapMode::HiRom => {
+                let bank = (addr >> 16) as usize;
+                let offset = (addr & 0xFFFF) as usize;
+                match bank {
+                    0x00..=0x3F => match offset {
+                        0x0000..=0x5FFF => unreachable!(),
+                        0x6000..=0x7FFF => {
+                            let sram_offset = bank * 1024 * 8 + (offset - 0x6000);
+                            let sram_index = sram_offset % self.sram.len();
+                            self.sram[sram_index] = data;
+                        }
+                        0x8000..=0xFFFF => {
+                            let rom_index = (addr as usize) % self.rom.rom.len();
+                            self.rom.rom[rom_index] = data;
+                        }
+                        _ => unreachable!(),
+                    },
+                    0x40..=0x7D => {
+                        let rom_index = (addr as usize - 0x400000) % self.rom.rom.len();
+                        self.rom.rom[rom_index] = data;
+                    }
+                    0x80..=0xBF => match offset {
+                        0x0000..=0x5FFF => unreachable!(),
+                        0x6000..=0x7FFF => {
+                            let sram_offset = (bank - 0x80) * 1024 * 8 + (offset - 0x6000);
+                            let sram_index = sram_offset % self.sram.len();
+                            self.sram[sram_index] = data;
+                        }
+                        0x8000..=0xFFFF => {
+                            let rom_index = (addr as usize - 0x800000) % self.rom.rom.len();
+                            self.rom.rom[rom_index] = data;
+                        }
+                        _ => unreachable!(),
+                    },
+                    0xC0..=0xFF => {
+                        let rom_index = (addr as usize - 0xC00000) % self.rom.rom.len();
+                        self.rom.rom[rom_index] = data;
+                    }
+                    _ => unreachable!(),
+                }
             }
-            0xC0..=0xFF => {
-                let index = addr as usize - 0xC00000;
-                self.rom.rom[index] = data;
-            }
-            _ => unreachable!(),
+            _ => unimplemented!(),
         }
     }
 }

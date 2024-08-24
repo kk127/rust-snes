@@ -64,7 +64,7 @@ impl Bus {
                     (nmi_flag as u8) << 7 | cpu_version | self.open_bus
                 }
 
-                0x8000..=0xFFFF => {
+                0x6000..=0xFFFF => {
                     if (0x80..=0xBF).contains(&bank) {
                         ctx.elapse(self.access_cycle_for_memory2);
                     } else {
