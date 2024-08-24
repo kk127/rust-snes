@@ -6,3 +6,5 @@
 cargo.lock
 
 .DS_Store
+
+/tests

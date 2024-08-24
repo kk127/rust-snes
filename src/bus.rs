@@ -56,11 +56,11 @@ impl Bus {
                 0x4210 => {
                     let nmi_flag = ctx.get_nmi_flag();
                     let cpu_version = 2;
-                    println!(
-                        "nmi_flag << 7 | cpu_version = {}",
-                        (nmi_flag as u8) << 7 | cpu_version
-                    );
-                    println!("open_bus = {}", self.open_bus);
+                    // println!(
+                    //     "nmi_flag << 7 | cpu_version = {}",
+                    //     (nmi_flag as u8) << 7 | cpu_version
+                    // );
+                    // println!("open_bus = {}", self.open_bus);
                     (nmi_flag as u8) << 7 | cpu_version | self.open_bus
                 }
 
@@ -226,7 +226,7 @@ impl Bus {
             }
             0xa => self.dma[ch].hdma_line_counter = data,
             0xb => self.dma[ch].unused = data,
-            _ => unreachable!(),
+            _ => unreachable!("Invalid index: {}", index),
         }
     }
 

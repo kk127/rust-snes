@@ -331,8 +331,8 @@ impl Cpu {
     fn set_e(&mut self, data: bool) {
         self.e = data;
         if self.e {
-            self.p.m = false;
-            self.p.x = false;
+            self.p.m = true;
+            self.p.x = true;
 
             self.x = self.x & 0xFF;
             self.y = self.y & 0xFF;
@@ -382,7 +382,11 @@ impl Cpu {
         self.push_8(ctx, self.p.into());
         self.p.i = true;
         self.pb = 0;
-        self.pc = self.get_interrupt_vector(exeption);
+        self.pc = WarpAddress {
+            addr: self.get_interrupt_vector(exeption) as u32,
+            mode: WarpMode::NoWarp,
+        }
+        .read_16(ctx);
     }
 
     fn get_interrupt_vector(&self, exception: Exeption) -> u16 {
@@ -692,7 +696,7 @@ impl Cpu {
         let opcode = self.fetch_8(ctx);
         // println!("cpu counter: {}", ctx.now());
         self.instruction_count += 1;
-        println!("OpCode: {:02X}", opcode);
+        // println!("OpCode: {:02X}", opcode);
         match opcode {
             0x00 => self.brk(ctx),
             0x01 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndexedIndirect),
@@ -1097,7 +1101,8 @@ impl Cpu {
     fn tya(&mut self, ctx: &mut impl Context) {
         if self.is_a_register_8bit() {
             let data = self.y as u8;
-            self.a = data as u16;
+            // self.a = data as u16;
+            self.a = (self.a & 0xFF00) | data as u16;
             self.set_nz(data);
         } else {
             let data = self.y;
@@ -1114,7 +1119,8 @@ impl Cpu {
     fn txa(&mut self, ctx: &mut impl Context) {
         if self.is_a_register_8bit() {
             let data = self.x as u8;
-            self.a = data as u16;
+            // self.a = data as u16;
+            self.a = (self.a & 0xFF00) | data as u16;
             self.set_nz(data);
         } else {
             let data = self.x;
@@ -1205,7 +1211,8 @@ impl Cpu {
         if self.is_a_register_8bit() {
             let data = self.fetch_8(ctx);
             self.set_nz(data);
-            self.a = data as u16;
+            // self.a = data as u16;
+            self.a = (self.a & 0xFF00) | data as u16;
         } else {
             let data = self.fetch_16(ctx);
             self.set_nz(data);
@@ -1219,7 +1226,8 @@ impl Cpu {
         if self.is_a_register_8bit() {
             let data = addr.read_8(ctx);
             self.set_nz(data);
-            self.a = data as u16;
+            // self.a = data as u16;
+            self.a = (self.a & 0xFF00) | data as u16;
         } else {
             let data = addr.read_16(ctx);
             self.set_nz(data);
@@ -1279,19 +1287,15 @@ impl Cpu {
 
     fn stz(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
-        println!("STZ addr: {:06x}", addr.addr);
         if self.is_memory_8bit() {
-            println!("STZ 8bit");
             addr.write_8(ctx, 0);
         } else {
-            println!("STZ 16bit");
             addr.write_16(ctx, 0);
         }
     }
 
     fn sta(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let addr = self.get_warp_address(addressing_mode, ctx);
-        println!("STA addr: {:06x}", addr.addr);
         if self.is_memory_8bit() {
             addr.write_8(ctx, self.a as u8);
         } else {
@@ -1386,7 +1390,8 @@ impl Cpu {
         if self.is_a_register_8bit() {
             let data = self.pop_8(ctx);
             self.set_nz(data);
-            self.a = data as u16;
+            // self.a = data as u16;
+            self.a = (self.a & 0xFF00) | data as u16;
         } else {
             let data = self.pop_16(ctx);
             self.set_nz(data);
@@ -1438,6 +1443,7 @@ impl Cpu {
     }
 
     fn alu(&mut self, ctx: &mut impl Context, alu_type: AluType, addressing_mode: AddressingMode) {
+        // TODO alu_sub_xの実装を見直す
         if self.is_a_register_8bit() {
             let a = self.a as u8;
             let b = if addressing_mode == AddressingMode::Immediate {
@@ -1450,12 +1456,13 @@ impl Cpu {
                 AluType::And => a & b,
                 AluType::Xor => a ^ b,
                 AluType::Add => self.alu_add_8(a, b),
-                //     AluType::Sub => a.wrapping_sub(b),
+                AluType::Sub => self.alu_sub_8(a, b),
                 AluType::Cmp => self.cmp_8(a, b),
                 _ => unreachable!(),
             };
             if alu_type != AluType::Cmp {
-                self.a = c as u16;
+                // self.a = c as u16;
+                self.a = (self.a & 0xFF00) | c as u16;
             }
             self.set_nz(c);
         } else {
@@ -1471,7 +1478,7 @@ impl Cpu {
                 AluType::And => a & b,
                 AluType::Xor => a ^ b,
                 AluType::Add => self.alu_add_16(a, b),
-                //     AluType::Sub => self.a = a.wrapping_sub(b),
+                AluType::Sub => self.alu_sub_16(a, b),
                 AluType::Cmp => self.cmp_16(a, b),
                 _ => unreachable!(),
             };
@@ -1559,6 +1566,128 @@ impl Cpu {
         let c = a + b + self.p.c as u32;
         self.p.c = c > 0xFFFF;
         let v = !(a ^ b) & (a ^ c) & 0x8000 != 0;
+        self.p.v = v;
+        c as u16
+    }
+
+    fn alu_sub_8(&mut self, a: u8, b: u8) -> u8 {
+        let c = if self.p.d {
+            self.dcd_sub_8(a, b)
+        } else {
+            self.bin_sub_8(a, b)
+        };
+        c
+    }
+
+    fn alu_sub_16(&mut self, a: u16, b: u16) -> u16 {
+        let c = if self.p.d {
+            self.dcd_sub_16(a, b)
+        } else {
+            self.bin_sub_16(a, b)
+        };
+        c
+    }
+
+    fn dcd_sub_8(&mut self, a: u8, b: u8) -> u8 {
+        let a = a as u32;
+        let b = b as u32;
+        let borrow = !self.p.c;
+        let tmp_c = a.wrapping_sub(b).wrapping_sub(borrow as u32);
+        self.p.c = tmp_c <= u8::MAX as u32;
+        let overflow = (a ^ b) & (a ^ tmp_c) & (1 << 7) != 0;
+        self.p.v = overflow;
+
+        // let mut borrow = !self.p.c as i32;
+        // let a = a as i32;
+        // let b = b as i32;
+        // let mut c_l = (a & 0xF) - (b & 0xF) - borrow;
+        // borrow = 0;
+        // if c_l < 0 {
+        //     c_l = (c_l - 6) & 0x0F;
+        //     borrow = 0x10;
+        // }
+        // let mut c_h = (a & 0xF0) - (b & 0xF0) - borrow;
+        // if c_h < 0 {
+        //     c_h = (c_h - 0x60) & 0xF0;
+        //     borrow = 0x100;
+        // }
+        // (c_h | c_l) as u8
+        let a = a as i32;
+        let b = b as i32;
+        let mut borrow = borrow as i32;
+        let mut c0 = (a & 0xF) - (b & 0xF) - borrow;
+        borrow = 0;
+        if c0 < 0 {
+            c0 = (c0 - 6) & 0xF;
+            borrow = 0x10;
+        }
+        let mut c1 = (a & 0xF0) - (b & 0xF0) - borrow;
+        let c = {
+            if c1 < 0 {
+                c1 = (c1 - 0x60) & 0xF0;
+            }
+            c1 | c0
+        };
+        c as u8
+    }
+
+    fn bin_sub_8(&mut self, a: u8, b: u8) -> u8 {
+        let a = a as u32;
+        let b = b as u32;
+        let mut borrow = !self.p.c as u32;
+        let c = a.wrapping_sub(b).wrapping_sub(borrow);
+        self.p.c = c < 0x100;
+        let v = (a ^ b) & (a ^ c) & 0x80 != 0;
+        self.p.v = v;
+        c as u8
+    }
+
+    fn dcd_sub_16(&mut self, a: u16, b: u16) -> u16 {
+        let a = a as u32;
+        let b = b as u32;
+        let borrow = !self.p.c;
+        let c = a.wrapping_sub(b).wrapping_sub(borrow as u32);
+        let ovf = (a ^ b) & (a ^ c) & (1 << (<u16>::BITS - 1)) != 0;
+        self.p.c = c <= u16::MAX as u32;
+        self.p.v = ovf;
+        let a = a as i32;
+        let b = b as i32;
+        let mut borrow = borrow as i32;
+        let mut c0 = (a & 0xF) - (b & 0xF) - borrow;
+        borrow = 0;
+        if c0 < 0 {
+            c0 = (c0 - 6) & 0xF;
+            borrow = 0x10;
+        }
+        let mut c1 = (a & 0xF0) - (b & 0xF0) - borrow;
+        let c = {
+            borrow = 0;
+            if c1 < 0 {
+                c1 = (c1 - 0x60) & 0xF0;
+                borrow = 0x100;
+            }
+            let mut c2 = (a & 0xF00) - (b & 0xF00) - borrow;
+            borrow = 0;
+            if c2 < 0 {
+                c2 = (c2 - 0x600) & 0xF00;
+                borrow = 0x1000;
+            }
+            let mut c3 = (a & 0xF000) - (b & 0xF000) - borrow;
+            if c3 < 0 {
+                c3 = (c3 - 0x6000) & 0xF000;
+            }
+            c3 | c2 | c1 | c0
+        };
+        c as u16
+    }
+
+    fn bin_sub_16(&mut self, a: u16, b: u16) -> u16 {
+        let a = a as u32;
+        let b = b as u32;
+        let mut borrow = !self.p.c as u32;
+        let c = a.wrapping_sub(b).wrapping_sub(borrow);
+        self.p.c = c < 0x10000;
+        let v = (a ^ b) & (a ^ c) & 0x8000 != 0;
         self.p.v = v;
         c as u16
     }
@@ -1712,7 +1841,8 @@ impl Cpu {
             let data = self.a as u8;
             let result = data.wrapping_add(1);
             self.set_nz(result);
-            self.a = result as u16;
+            // self.a = result as u16;
+            self.a = (self.a & 0xFF00) | result as u16;
         } else {
             let data = self.a;
             let result = data.wrapping_add(1);
@@ -1773,7 +1903,8 @@ impl Cpu {
             let data = self.a as u8;
             let result = data.wrapping_sub(1);
             self.set_nz(result);
-            self.a = result as u16;
+            // self.a = result as u16;
+            self.a = (self.a & 0xFF00) | result as u16;
         } else {
             let data = self.a;
             let result = data.wrapping_sub(1);
@@ -1815,7 +1946,8 @@ impl Cpu {
             self.p.c = (data >> 7) & 1 == 1;
             let result = data << 1;
             self.set_nz(result);
-            self.a = result as u16;
+            // self.a = result as u16;
+            self.a = (self.a & 0xFF00) | result as u16;
         } else {
             let data = self.a;
             self.p.c = (data >> 15) & 1 == 1;
@@ -1850,7 +1982,8 @@ impl Cpu {
             self.p.c = data & 1 == 1;
             let result = data >> 1;
             self.set_nz(result);
-            self.a = result as u16;
+            // self.a = result as u16;
+            self.a = (self.a & 0xFF00) | result as u16;
         } else {
             let data = self.a;
             self.p.c = data & 1 == 1;
@@ -1886,7 +2019,8 @@ impl Cpu {
             self.p.c = (data >> 7) & 1 == 1;
             let result = (data << 1) | c;
             self.set_nz(result);
-            self.a = result as u16;
+            // self.a = result as u16;
+            self.a = (self.a & 0xFF00) | result as u16;
         } else {
             let data = self.a;
             let c = self.p.c as u16;
@@ -1925,7 +2059,8 @@ impl Cpu {
             self.p.c = data & 1 == 1;
             let result = (data >> 1) | (c << 7);
             self.set_nz(result);
-            self.a = result as u16;
+            // self.a = result as u16;
+            self.a = (self.a & 0xFF00) | result as u16;
         } else {
             let data = self.a;
             let c = self.p.c as u16;
@@ -2122,12 +2257,8 @@ impl Cpu {
 
     fn rep(&mut self, ctx: &mut impl Context) {
         let data = self.fetch_8(ctx);
-        println!("rep: {:02X}", data);
-        println!("rep: {:08b}", data);
         ctx.elapse(CPU_CYCLE);
         let p: u8 = self.p.into();
-        println!("p:     {:08b}", p);
-        println!("!data: {:08b}", !data);
         self.p = (p & !data).into();
     }
 
