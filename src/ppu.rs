@@ -20,9 +20,9 @@ pub struct Ppu {
     display_control_1: u8,                                      // $2100
     object_size_and_base: ObjectSizAndBase,                     // $2101
     oam_addr_and_priority_rotation: OamAddrAndPriorityRotation, // $2102
-    display_control_2: u8,                                      // $2133
     main_screen_desination: u8,                                 // $212C
     sub_screen_destination: u8,                                 // $212D
+    display_control_2: u8,                                      // $2133
 
     // BG control registers
     bg_mode_and_character_size: u8,                 // $2105
@@ -39,14 +39,17 @@ pub struct Ppu {
     palette_cgram_low_data: u8,
 
     // Rotational and scaling registers
-    // TODO
-    rotation_scaling_param: RotationScalingParam,
+    rotation_scaling_setting: RotatinScalingSetting, // $211A
+    rotation_scaling_param: RotationScalingParam,    // $211B, $211C, $211D, $211E, $211F, $2120
     m7_old: u8,
-    // Sprite control registers
-    // TODO
 
     // Window control registers
-    window: Window,
+    window_position: [WindowPosition; 2], // $2126, $2127, $2128, $2129
+    window_mask_settings: WindowMask,     // $2123, $2124, $2125
+    window_mask_logic: WindowMaskLogic,   // $212A, $212B
+    window_main_screen_disable: WindowAreaDisable, // $212E,
+    window_sub_screen_disable: WindowAreaDisable, // $212F
+
     // Color math registers
     color_math: ColorMath,
 }
@@ -105,15 +108,20 @@ impl Default for Ppu {
             bg_character_base: 0,
             bg_hofs: [0; 4],
             bg_vofs: [0; 4],
-            vram_mode: Default::default(), // 別の型はDefault::default()を使っても良い
+            vram_mode: Default::default(),
             vram_addr: 0,
             palette_cgram_addr: 0,
             palette_cgram_low_data: 0,
 
+            rotation_scaling_setting: Default::default(),
             rotation_scaling_param: Default::default(),
             m7_old: 0,
 
-            window: Default::default(),
+            window_position: Default::default(),
+            window_mask_settings: Default::default(),
+            window_mask_logic: Default::default(),
+            window_main_screen_disable: Default::default(),
+            window_sub_screen_disable: Default::default(),
 
             color_math: Default::default(),
         }
@@ -171,6 +179,7 @@ impl Ppu {
                     self.vram_addr = (self.vram_addr + self.vram_mode.get_inc()) & 0x7FFF;
                 }
             }
+            0x211A => self.rotation_scaling_setting.bytes[0] = data,
             0x211B => {
                 self.rotation_scaling_param.a = (data as u16) << 8 | self.m7_old as u16;
                 self.m7_old = data;
@@ -210,21 +219,28 @@ impl Ppu {
                 }
                 self.palette_cgram_addr = (self.palette_cgram_addr + 1) & 0x1FF;
             }
-            0x2123 => self.window.bg12_mask_settings = data,
-            0x2124 => self.window.bg34_mask_settings = data,
-            0x2125 => self.window.obj_mask_settings = data,
-            0x2126 => self.window.window1_left_position = data,
-            0x2127 => self.window.window1_right_position = data,
-            0x2128 => self.window.window2_left_position = data,
-            0x2129 => self.window.window2_right_position = data,
-            0x212A => self.window.window1_mask_logic = data,
-            0x212B => self.window.window2_mask_logic = data,
-
-            0x212E => self.window.main_area_screen_disable = data,
-            0x212F => self.window.sub_area_screen_disable = data,
-
+            0x2123 => {
+                self.window_mask_settings.bg[0].bytes[0] = data & 0x0F;
+                self.window_mask_settings.bg[1].bytes[0] = data >> 4;
+            }
+            0x2124 => {
+                self.window_mask_settings.bg[2].bytes[0] = data & 0x0F;
+                self.window_mask_settings.bg[3].bytes[0] = data >> 4;
+            }
+            0x2125 => {
+                self.window_mask_settings.obj.bytes[0] = data & 0x0F;
+                self.window_mask_settings.math.bytes[0] = data >> 4;
+            }
+            0x2126 => self.window_position[0].left = data,
+            0x2127 => self.window_position[0].right = data,
+            0x2128 => self.window_position[1].left = data,
+            0x2129 => self.window_position[1].right = data,
+            0x212A => self.window_mask_logic.bytes[0] = data,
+            0x212B => self.window_mask_logic.bytes[1] = data,
             0x212C => self.main_screen_desination = data,
             0x212D => self.sub_screen_destination = data,
+            0x212E => self.window_main_screen_disable.bytes[0] = data,
+            0x212F => self.window_sub_screen_disable.bytes[0] = data,
 
             0x2130 => self.color_math.control_register_a = data,
             0x2131 => self.color_math.control_register_b = data,
@@ -375,8 +391,8 @@ struct ObjectSizAndBase {
     obj_size_selection: ObjectSizeSelection,
 }
 
-#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
 #[bits = 3]
+#[derive(BitfieldSpecifier, Debug, Copy, Clone)]
 enum ObjectSizeSelection {
     Size8x8_16x16 = 0,
     Size8x8_32x32 = 1,
@@ -396,6 +412,15 @@ struct OamAddrAndPriorityRotation {
     priority_rotation: bool,
 }
 
+#[bitfield(bits = 8)]
+#[derive(Default)]
+struct RotatinScalingSetting {
+    h_flip: bool,
+    v_flip: bool,
+    __: B4,
+    screen_over: B2,
+}
+
 #[derive(Default)]
 struct RotationScalingParam {
     a: u16,
@@ -407,21 +432,65 @@ struct RotationScalingParam {
 }
 
 #[derive(Default)]
-struct Window {
-    window1_left_position: u8,
-    window1_right_position: u8,
-    window2_left_position: u8,
-    window2_right_position: u8,
+struct WindowPosition {
+    left: u8,
+    right: u8,
+}
 
-    bg12_mask_settings: u8,
-    bg34_mask_settings: u8,
-    obj_mask_settings: u8,
+#[derive(Default)]
+struct WindowMask {
+    bg: [MaskSettings; 4],
+    obj: MaskSettings,
+    math: MaskSettings,
+}
 
-    window1_mask_logic: u8,
-    window2_mask_logic: u8,
+#[bitfield(bits = 8)]
+#[derive(BitfieldSpecifier, Default)]
+struct MaskSettings {
+    window1: MaskSetting,
+    window2: MaskSetting,
+    __: B4,
+}
 
-    main_area_screen_disable: u8,
-    sub_area_screen_disable: u8,
+#[bitfield(bits = 2)]
+#[derive(BitfieldSpecifier)]
+struct MaskSetting {
+    enable: bool,
+    outside: bool,
+}
+
+#[bitfield(bits = 16)]
+#[derive(Default)]
+struct WindowMaskLogic {
+    bg1: MaskLogic,
+    bg2: MaskLogic,
+    bg3: MaskLogic,
+    bg4: MaskLogic,
+    obj: MaskLogic,
+    math: MaskLogic,
+    __: B4,
+}
+
+#[derive(BitfieldSpecifier)]
+#[bits = 2]
+#[derive(Default)]
+enum MaskLogic {
+    #[default]
+    Or = 0,
+    And = 1,
+    Xor = 2,
+    Xnor = 3,
+}
+
+#[bitfield(bits = 8)]
+#[derive(Default)]
+struct WindowAreaDisable {
+    bg1: bool,
+    bg2: bool,
+    bg3: bool,
+    bg4: bool,
+    obj: bool,
+    __: B3,
 }
 
 #[derive(Default)]
