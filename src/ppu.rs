@@ -33,6 +33,8 @@ pub struct Ppu {
 
     is_hblank: bool,
     is_vblank: bool,
+    is_hdma_reload: bool,
+    is_hdma_transfer: bool,
 
     vram: [u8; 0x10000], // 64KB
     cgram: [u16; 0x100], // 512B
@@ -142,6 +144,8 @@ impl Default for Ppu {
 
             is_hblank: false,
             is_vblank: false,
+            is_hdma_reload: false,
+            is_hdma_transfer: false,
         
             vram: [0; 0x10000],
             cgram: [0; 0x100],
@@ -515,6 +519,14 @@ impl Ppu {
             if self.x == 1 {
                 self.is_hblank = false;
             }
+
+            if (self.x, self.y) == (6, 0) {
+                self.is_hdma_reload = true;
+            }
+            if self.x == 278 && (0..=224).contains(&self.y) {
+                self.is_hdma_transfer = true;
+            }
+
             if self.x == 274 {
                 self.is_hblank = true;
             }
@@ -729,6 +741,18 @@ impl Ppu {
     }
     pub fn is_vblank(&self) -> bool {
         self.is_vblank
+    }
+
+    pub fn is_hdma_reload_triggered(&mut self) -> bool {
+        let ret = self.is_hdma_reload;
+        self.is_hdma_reload = false;
+        ret
+    }
+
+    pub fn is_hdma_transfer_triggered(&mut self) -> bool {
+        let ret = self.is_hdma_transfer;
+        self.is_hdma_transfer = false;
+        ret
     }
 }
 

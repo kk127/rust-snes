@@ -106,6 +106,12 @@ impl Bus {
         data
     }
 
+    fn read_16(&mut self, addr: u32, ctx: &mut impl Context) -> u16 {
+        let lo = self.read(addr, ctx) as u16;
+        let hi = self.read(addr & 0xFF0000 | (addr as u16).wrapping_add(1) as u32, ctx) as u16;
+        hi << 8 | lo
+    }
+
     pub fn write(&mut self, addr: u32, data: u8, ctx: &mut impl Context) {
         let bank = addr >> 16;
         let offset = addr as u16;
@@ -304,6 +310,46 @@ impl Bus {
         }
     }
 
+    fn hdma_reload_and_exec(&mut self, ctx: &mut impl Context) {
+        if ctx.is_hdma_reload_triggered() {
+            for ch in 0..8 {
+                self.dma[ch].is_hdma_active = false;
+                self.dma[ch].is_hdma_completed = false;
+            }
+            if self.hdma_enable != 0 {
+                ctx.elapse(18);
+            }
+
+            for ch in 0..8 {
+                if self.hdma_enable >> ch & 1 == 1 {
+                    self.hdma_reload(ctx, ch);
+                }
+            }
+        }
+    }
+
+    fn hdma_reload(&mut self, ctx: &mut impl Context, ch: usize) {
+        self.dma[ch].hdma_table_current_address = self.dma[ch].a_bus_address;
+
+        let addr = self.dma[ch].hdma_direct_address(1);
+        let data = self.read(addr, ctx);
+
+        if data == 0 {
+            self.dma[ch].is_hdma_completed = true;
+            return;
+        }
+
+        if self.dma[ch].dma_params.hdma_addr_mode() == HdmaAddrMode::Indirect {
+            let addr = self.dma[ch].hdma_indirect_address(2);
+            let data = self.read_16(addr, ctx);
+            self.dma[ch].hdma_table_current_address = data;
+        }
+
+        self.dma[ch].is_hdma_active = true;
+    }
+
+    fn hdma_exec(&mut self, ctx: &mut impl Context, ch: usize) {}
+
     pub fn tick(&mut self, ctx: &mut impl Context) {
         self.gdma_exec(ctx);
     }
@@ -320,6 +366,9 @@ struct Dma {
     hdma_table_current_address: u16,  // 0x43x8 0x43x9
     hdma_line_counter: u8,            // 0x43xA
     unused: u8,                       // 0x43xB
+
+    is_hdma_active: bool,
+    is_hdma_completed: bool,
 }
 
 impl Dma {
@@ -334,6 +383,18 @@ impl Dma {
             _ => unreachable!(),
         }
     }
+
+    fn hdma_direct_address(&mut self, inc: u16) -> u32 {
+        let ret = (self.a_bus_bank as u32) << 16 | self.a_bus_address as u32;
+        self.a_bus_address = self.a_bus_address.wrapping_add(inc);
+        ret
+    }
+
+    fn hdma_indirect_address(&mut self, inc: u16) -> u32 {
+        let ret = (self.indirect_hdma_bank as u32) << 16 | self.hdma_table_current_address as u32;
+        self.hdma_table_current_address = self.hdma_table_current_address.wrapping_add(inc);
+        ret
+    }
 }
 
 #[bitfield(bits = 8)]
@@ -342,7 +403,7 @@ struct DmaParams {
     transfer_unit: B3,
     a_bus_address_step: AbusAddressStep,
     __: B1,
-    hdma_address_mode: B1,
+    hdma_addr_mode: HdmaAddrMode,
     transfer_direction: TransferDirection,
 }
 
@@ -353,6 +414,14 @@ enum AbusAddressStep {
     Fixed1 = 1,
     Decrement = 2,
     Fixed3 = 3,
+}
+
+#[derive(BitfieldSpecifier, Default, PartialEq)]
+#[bits = 1]
+enum HdmaAddrMode {
+    #[default]
+    Direct = 0,
+    Indirect = 1,
 }
 
 #[derive(BitfieldSpecifier)]

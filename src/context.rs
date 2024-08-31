@@ -144,6 +144,13 @@ impl Ppu for Inner2 {
     fn is_vblank(&self) -> bool {
         self.ppu.is_vblank()
     }
+
+    fn is_hdma_reload_triggered(&mut self) -> bool {
+        self.ppu.is_hdma_reload_triggered()
+    }
+    fn is_hdma_transfer_triggered(&mut self) -> bool {
+        self.ppu.is_hdma_transfer_triggered()
+    }
 }
 
 impl Cartridge for Inner2 {
@@ -290,6 +297,8 @@ pub trait Ppu {
 
     fn is_hblank(&self) -> bool;
     fn is_vblank(&self) -> bool;
+    fn is_hdma_reload_triggered(&mut self) -> bool;
+    fn is_hdma_transfer_triggered(&mut self) -> bool;
 }
 
 pub trait Timing {

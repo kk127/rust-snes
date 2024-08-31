@@ -19,7 +19,7 @@ fn main() -> Result<(), String> {
 
     // ウィンドウサイズを512x448に変更
     let window = video_subsystem
-        .window("rust-snes", 512, 448)
+        .window("rust-snes", 256 * 3, 224 * 3)
         .position_centered()
         .resizable()
         .build()
