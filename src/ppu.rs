@@ -2,29 +2,50 @@ use crate::context;
 use modular_bitfield::prelude::*;
 
 use log::debug;
-trait Context: context::Timing + context::Interrupt {}
+trait Context: context::Timing + context::Interrupt  {}
 impl<T: context::Timing + context::Interrupt> Context for T {}
 
+const FRAME_HEIGHT: usize = 224;
+const FRAME_WIDTH: usize = 256;
+
+const BG_MODE_BPP: [&[usize]; 8] = [
+    &[2, 2, 2, 2],  // Mode0
+    &[4, 4, 2],     // Mode1
+    &[4, 4],        // Mode2
+    &[8, 4],        // Mode3
+    &[8, 2],        // Mode4
+    &[4, 2],        // Mode5
+    &[4],           // Mode6
+    // TODO EXTBG
+    &[8],           // Mode7 
+];
+
+
 pub struct Ppu {
-    pub screen: [u16; 256 * 224],
+    pub frame: [u16; FRAME_WIDTH * FRAME_HEIGHT],
     pub frame_number: u64,
     counter: u64,
+    main_screen: [PixelInfo; FRAME_WIDTH],
+    sub_screen: [PixelInfo; FRAME_WIDTH],
 
     x: u16,
     y: u16,
+
+    is_hblank: bool,
+    is_vblank: bool,
 
     vram: [u8; 0x10000], // 64KB
     cgram: [u16; 0x100], // 512B
     oam: [u8; 0x220],    // 544B
 
     // Ppu control registers
-    display_control: DisplayCtrl,           // $2100, $2133
-    object_size_and_base: ObjectSizAndBase, // $2101
-    main_screen_desination: u8,             // $212C
-    sub_screen_destination: u8,             // $212D
+    display_control: DisplayCtrl,               // $2100, $2133
+    object_size_and_base: ObjectSizAndBase,     // $2101
+    screen_main_designation: ScreenDesignation, // $212C
+    screen_sub_designation: ScreenDesignation,  // $212D
 
     // BG control registers
-    bg_mode_and_character_size: u8,                 // $2105
+    bg_ctrl: BgCtrl,                                // $2105
     mosaic_size_and_enable: MosaicSizeAndEnable,    // $2106
     bg_screen_base_and_size: [BGScreenBaseSize; 4], // $2107, $2108, $2109, $210A
     bg_tile_base_addr: [u8; 4],                     // $210B, $210C
@@ -55,8 +76,8 @@ pub struct Ppu {
     window_position: [WindowPosition; 2], // $2126, $2127, $2128, $2129
     window_mask_settings: WindowMask,     // $2123, $2124, $2125
     window_mask_logic: WindowMaskLogic,   // $212A, $212B
-    window_main_screen_disable: WindowAreaDisable, // $212E
-    window_sub_screen_disable: WindowAreaDisable, // $212F
+    window_main_designation: ScreenDesignation, // $212E
+    window_sub_designation: ScreenDesignation, // $212F
 
     // Color math registers
     color_math_ctrl: ColorMathCtrl, // $2130, $2131
@@ -110,19 +131,26 @@ impl VramAddrIncMode {
 impl Default for Ppu {
     fn default() -> Self {
         Ppu {
-            screen: [0; 256 * 224],
+            frame: [0; 256 * 224],
             frame_number: 0,
             counter: 0,
+            main_screen: [Default::default(); FRAME_WIDTH],
+            sub_screen: [Default::default(); FRAME_WIDTH],
+
             x: 0,
             y: 0,
+
+            is_hblank: false,
+            is_vblank: false,
+        
             vram: [0; 0x10000],
             cgram: [0; 0x100],
             oam: [0; 0x220],
             display_control: Default::default(),
             object_size_and_base: Default::default(),
-            main_screen_desination: 0,
-            sub_screen_destination: 0,
-            bg_mode_and_character_size: 0,
+            screen_main_designation: Default::default(),
+            screen_sub_designation: Default::default(),
+            bg_ctrl: Default::default(),
             mosaic_size_and_enable: Default::default(),
             bg_screen_base_and_size: [BGScreenBaseSize::new(); 4],
             bg_tile_base_addr: [0; 4],
@@ -149,8 +177,8 @@ impl Default for Ppu {
             window_position: Default::default(),
             window_mask_settings: Default::default(),
             window_mask_logic: Default::default(),
-            window_main_screen_disable: Default::default(),
-            window_sub_screen_disable: Default::default(),
+            window_main_designation: Default::default(),
+            window_sub_designation: Default::default(),
 
             color_math_ctrl: Default::default(),
             color_math_sub_screen_backdrop_color: Default::default(),
@@ -289,7 +317,7 @@ impl Ppu {
                 }
                 self.oam_addr = (self.oam_addr + 1) & 0x3FF;
             }
-            0x2105 => self.bg_mode_and_character_size = data,
+            0x2105 => self.bg_ctrl.bytes[0] = data,
             0x2106 => self.mosaic_size_and_enable.bytes[0] = data,
             0x2107..=0x210A => {
                 let index = (addr - 0x2107) as usize;
@@ -405,15 +433,25 @@ impl Ppu {
             0x2129 => self.window_position[1].right = data,
             0x212A => self.window_mask_logic.bytes[0] = data,
             0x212B => self.window_mask_logic.bytes[1] = data,
-            0x212C => self.main_screen_desination = data,
-            0x212D => self.sub_screen_destination = data,
-            0x212E => self.window_main_screen_disable.bytes[0] = data,
-            0x212F => self.window_sub_screen_disable.bytes[0] = data,
+            0x212C => self.screen_main_designation.bytes[0] = data,
+            0x212D => self.screen_sub_designation.bytes[0] = data,
+            0x212E => self.window_main_designation.bytes[0] = data,
+            0x212F => self.window_sub_designation.bytes[0] = data,
 
             0x2130 => self.color_math_ctrl.bytes[0] = data,
             0x2131 => self.color_math_ctrl.bytes[1] = data,
-            // TODO additional process
-            0x2132 => self.color_math_sub_screen_backdrop_color.bytes[0] = data,
+            0x2132 => {
+                let intensity = data & 0x1F;
+                if data >> 5 & 1 == 1 {
+                    self.color_math_sub_screen_backdrop_color.r = intensity;
+                }
+                if data >> 6 & 1 == 1 {
+                    self.color_math_sub_screen_backdrop_color.g = intensity;
+                }
+                if data >> 7 & 1 == 1 {
+                    self.color_math_sub_screen_backdrop_color.b = intensity;
+                }
+            }
             0x2133 => self.display_control.bytes[1] = data,
             0x2134..=0x213F => {
                 unreachable!("Write PPU register, addr: {:x}, data: {:x}", addr, data);
@@ -443,9 +481,11 @@ impl Ppu {
                 self.x = 0;
                 self.y += 1;
 
+
                 if self.y == 262 {
                     self.y = 0;
 
+                    self.is_vblank = false;
                     ctx.set_nmi_flag(false);
 
                     self.frame_number += 1;
@@ -469,6 +509,14 @@ impl Ppu {
 
             if self.x == 0 && self.y == 225 {
                 ctx.set_nmi_flag(true);
+                self.is_vblank = true;
+            }
+
+            if self.x == 1 {
+                self.is_hblank = false;
+            }
+            if self.x == 274 {
+                self.is_hblank = true;
             }
 
             if self.x == 10 && self.y == 225 {
@@ -484,18 +532,110 @@ impl Ppu {
     }
 
     fn render_line(&mut self, y: u16) {
-        for x in 0..256 {
-            self.screen[(y * 256 + x) as usize] = self.get_xy_color(x, y);
-        }
-        // for i in 0..256 {
-        //     println!(
-        //         "i: {i}, cgram: b: {}, g: {}, r: {}",
-        //         (self.cgram[i] >> 10) & 0x1F,
-        //         (self.cgram[i] >> 5) & 0x1F,
-        //         self.cgram[i] & 0x1F
-        //     );
-        // }
+        self.render_bg(y);
+        self.color_math(y);
     }
+
+    fn render_bg(&mut self, y: u16) {
+        let bg_mode = self.bg_ctrl.bg_mode();
+        let bpp_mode = BG_MODE_BPP[bg_mode as usize];
+        for i in 0..FRAME_WIDTH {
+            self.main_screen[i] = PixelInfo::new(self.cgram[0], 13, Layer::Backdrop);
+            self.sub_screen[i] = PixelInfo::new(self.color_math_sub_screen_backdrop_color.get_bgr(), 13, Layer::Backdrop);
+        }
+        for (bg_index, &bpp) in bpp_mode.iter().enumerate() {
+            println!("bg_index: {}", bg_index);
+            // TODO for debug
+            // if bg_index != 0 {
+            //     break;
+            // }
+            let (tile_w_num, tile_h_num) = self.bg_screen_base_and_size[bg_index].get_tile_num();
+            let tile_size = self.bg_ctrl.get_tile_size(bg_index);
+            let tile_base_addr = self.bg_tile_base_addr[bg_index] as usize * 8 * 1024;
+            let screen_width = tile_w_num * tile_size;
+            let screen_height = tile_h_num * tile_size;
+
+
+            for x in 0..FRAME_WIDTH {
+                let screen_x = (x + self.bg_hofs[bg_index] as usize) % screen_width;
+                let screen_y = (y as usize + self.bg_vofs[bg_index] as usize) % screen_height;
+
+                let mut bg_map_base_addr = self.bg_screen_base_and_size[bg_index].get_bg_map_base_addr();
+                let mut tile_x_index = screen_x / tile_size;
+                let mut tile_y_index = screen_y / tile_size;
+                if tile_x_index >= 32 {
+                    tile_x_index %= 32;
+                    bg_map_base_addr += 2 * 1024;
+                }
+                if tile_y_index >= 32 {
+                    tile_y_index %= 32;
+                    bg_map_base_addr += 2 * 2 * 1024;
+                }
+
+                let map_entry_addr = (bg_map_base_addr + 2 * (tile_y_index * 32 + tile_x_index)) & 0xFFFE;
+                let map_entry = BGMapEntry::from_bytes([
+                    self.vram[map_entry_addr],
+                    self.vram[map_entry_addr + 1],
+                ]);
+
+                let mut tile_index = map_entry.character_number() as usize;
+                let mut pixel_x = (screen_x % tile_size) ^ if map_entry.flip_x() { tile_size -1 } else { 0 };
+                let mut pixel_y = (screen_y % tile_size) ^ if map_entry.flip_y() { tile_size -1 } else { 0 };
+                if pixel_x >= 8 {
+                    tile_index += 0x01;
+                    pixel_x %= 8;
+                }
+                if pixel_y >= 8 {
+                    tile_index += 0x10;
+                    pixel_y %= 8;
+                }
+
+                let tile_addr  = tile_base_addr + tile_index * bpp  * 8;
+                let mut color_index = 0;
+                for i in 0..bpp/2 {
+                    let bit_addr = (tile_addr + i * 16 + pixel_y * 2) & 0xFFFE;
+                    let low = (self.vram[bit_addr] >> (7 - pixel_x)) & 1;
+                    let high = (self.vram[bit_addr + 1] >> (7 - pixel_x)) & 1;
+                    color_index |= low << (i * 2);
+                    color_index |= high << (i * 2 + 1);
+                } 
+
+                let is_high = map_entry.bg_priority();
+                if color_index != 0 {
+                    let cgram_base_addr = if self.bg_ctrl.bg_mode() == 0 {
+                        bg_index * 0x20
+                    } else {
+                        0
+                    };
+                    let cgram_addr = (cgram_base_addr + map_entry.pallet_number() as usize * (1 << bpp) + color_index as usize) & 0xFF;
+                    let color = self.cgram[cgram_addr];
+                    if self.screen_main_designation.get_bg_enable(bg_index) {
+                        let priority = self.get_bg_layer_priority(bg_index as u8, is_high);
+                        if priority < self.main_screen[x].priority {
+                            self.main_screen[x] = PixelInfo::new(color, priority, Layer::BG(bg_index as u8));
+                        }
+                    }
+                    if self.screen_sub_designation.get_bg_enable(bg_index) {
+                        let priority = self.get_bg_layer_priority(bg_index as u8, is_high);
+                        if priority < self.sub_screen[x].priority {
+                            self.sub_screen[x] = PixelInfo::new(color, priority, Layer::BG(bg_index as u8));
+                        }
+                    }
+                    // self.frame[y as usize * FRAME_WIDTH + x] = color;
+                }
+            }
+        }
+    }
+
+    fn color_math(&mut self, y: u16) {
+        for i in 0..FRAME_WIDTH {
+            let main_color = self.main_screen[i];
+            let sub_color = self.sub_screen[i];
+            // let color = self.color_math_ctrl.calc_color(main_color, sub_color);
+            self.frame[y as usize * FRAME_WIDTH + i] = (main_color.b as u16) << 10 | (main_color.g as u16) << 5 | main_color.r as u16;
+        }
+    }
+
 
     fn get_xy_color(&self, x: u16, y: u16) -> u16 {
         let bg_map_index = (y / 8) * 32 + x / 8;
@@ -541,6 +681,98 @@ impl Ppu {
         let color = self.cgram[pallet_addr as usize];
         color
     }
+
+    #[rustfmt::skip]
+    fn get_bg_layer_priority(&self, layer: u8, is_high: bool) -> u8 {
+        match self.bg_ctrl.bg_mode() {
+            0 => match layer {
+                0 => if is_high { 2 } else {  5 },  // BG1
+                1 => if is_high { 3 } else {  6 },  // BG2
+                2 => if is_high { 8 } else { 11 },  // BG3
+                3 => if is_high { 9 } else { 12 },  // BG4
+                _ => unreachable!(),
+            },
+            1 => match layer {
+                0 => if is_high { 2 } else { 5 },  // BG1
+                1 => if is_high { 3 } else { 6 },  // BG2
+                2 => match (self.bg_ctrl.is_bg3_priority_high(), is_high) {
+                    (true, true)   =>  0,           // BG3.1a
+                    (true, false)  => 11,           // BG3.0a
+                    (false, true)  =>  8,           // BG3.1b
+                    (false, false) => 12,           // BG3.0b
+                },
+                _ => unreachable!(),
+            },
+            2..=5 => match layer {
+                0 => if is_high { 2 } else {  8 },  // BG1
+                1 => if is_high { 5 } else { 11 },  // BG2
+                _ => unreachable!(),
+            },
+            6 => match layer {
+                0 => if is_high { 2 } else { 8 },  // BG1
+                _ => unreachable!(),
+            },
+            7 => match layer {
+                0 => 7,
+                // TODO EXTBG
+                1 => 11,
+                _ => unreachable!(),
+            }
+            _ => unreachable!(),
+        }    
+    }
+}
+
+impl Ppu {
+    pub fn is_hblank(&self) -> bool {
+        self.is_hblank
+    }
+    pub fn is_vblank(&self) -> bool {
+        self.is_vblank
+    }
+}
+
+
+#[derive(Default, Clone, Copy)]
+struct PixelInfo {
+    r: u8,
+    g: u8,
+    b: u8,
+    priority: u8,
+    layer: Layer,
+}
+
+impl PixelInfo {
+    fn new(color: u16, priority: u8, layer: Layer) -> Self {
+        let r = (color & 0x1F) as u8;
+        let g = ((color >> 5) & 0x1F) as u8;
+        let b = ((color >> 10) & 0x1F) as u8;
+        PixelInfo { r, g, b, priority, layer }
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+enum Layer {
+    Bg1,
+    Bg2,
+    Bg3,
+    Bg4,
+    Obj0_3,
+    Obj4_7,
+    #[default]
+    Backdrop,
+}
+
+impl Layer {
+    fn BG(bg_index: u8) -> Self {
+        match bg_index {
+            0 => Layer::Bg1,
+            1 => Layer::Bg2,
+            2 => Layer::Bg3,
+            3 => Layer::Bg4,
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[bitfield(bits = 16)]
@@ -560,6 +792,48 @@ struct DisplayCtrl {
     external_sync: bool,
 }
 
+#[bitfield(bits = 8)]
+#[derive(Default)]
+struct ScreenDesignation {
+    bg1_enable: bool,
+    bg2_enable: bool,
+    bg3_enable: bool,
+    bg4_enable: bool,
+    obj_enable: bool,
+    #[skip]
+    __: B3,
+}
+
+impl ScreenDesignation {
+    fn get_bg_enable(&self, bg_index: usize) -> bool {
+        match bg_index {
+            0 => self.bg1_enable(),
+            1 => self.bg2_enable(),
+            2 => self.bg3_enable(),
+            3 => self.bg4_enable(),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[bitfield(bits = 8)]
+#[derive(Default)]
+struct BgCtrl {
+    bg_mode: B3,
+    is_bg3_priority_high: bool,
+    tile_size: B4,
+}
+
+impl BgCtrl {
+    fn get_tile_size(&self, bg_index: usize) -> usize {
+        match (self.tile_size() >> bg_index) & 1 {
+            0 => 8,
+            1 => 16,
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[bitfield(bits = 16)]
 #[derive(Debug)]
 struct BGMapEntry {
@@ -575,6 +849,25 @@ struct BGMapEntry {
 struct BGScreenBaseSize {
     screen_size: B2,
     screen_base: B6,
+}
+
+impl BGScreenBaseSize {
+    fn get_tile_num(&self) -> (usize, usize) {
+        match self.screen_size() {
+            0 => (32, 32),
+            1 => (64, 32),
+            2 => (32, 64),
+            3 => (64, 64),
+            _ => unreachable!(),
+        }
+    }
+}
+
+
+impl BGScreenBaseSize {
+    fn get_bg_map_base_addr(&self) -> usize {
+        self.screen_base() as usize * 0x800
+    }
 }
 
 #[bitfield(bits = 8)]
@@ -678,17 +971,6 @@ enum MaskLogic {
 
 #[bitfield(bits = 8)]
 #[derive(Default)]
-struct WindowAreaDisable {
-    bg1: bool,
-    bg2: bool,
-    bg3: bool,
-    bg4: bool,
-    obj: bool,
-    __: B3,
-}
-
-#[bitfield(bits = 8)]
-#[derive(Default)]
 struct MosaicSizeAndEnable {
     enable: B4,
     size: B4,
@@ -728,11 +1010,15 @@ enum ForceMainScreenBlack {
     Always = 3,
 }
 
-#[bitfield(bits = 8)]
 #[derive(Default)]
 struct ColorMathSubscreenBackdropColor {
-    intensity: B5,
-    r: bool,
-    g: bool,
-    b: bool,
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+impl ColorMathSubscreenBackdropColor {
+    fn get_bgr(&self) -> u16 {
+        (self.b as u16) << 10 | (self.g as u16) << 5 | self.r as u16
+    }
 }

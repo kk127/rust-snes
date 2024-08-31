@@ -64,6 +64,14 @@ impl Bus {
                     (nmi_flag as u8) << 7 | cpu_version | self.open_bus
                 }
 
+                0x4212 => {
+                    let mut ret = 0;
+                    // TODO joypad busy
+                    ret |= (ctx.is_hblank() as u8) << 6;
+                    ret |= (ctx.is_vblank() as u8) << 7;
+                    ret
+                }
+
                 0x6000..=0xFFFF => {
                     if (0x80..=0xBF).contains(&bank) {
                         ctx.elapse(self.access_cycle_for_memory2);
@@ -150,6 +158,7 @@ impl Bus {
                 0x420C => {
                     ctx.elapse(CYCLE_FAST);
                     self.hdma_enable = data;
+                    debug!("HDMA enable: 0x{:x}", data);
                 }
                 0x420D => {
                     ctx.elapse(CYCLE_FAST);

@@ -136,6 +136,14 @@ impl Ppu for Inner2 {
     fn ppu_tick(&mut self) {
         self.ppu.tick(&mut self.inner)
     }
+
+    fn is_hblank(&self) -> bool {
+        self.ppu.is_hblank()
+    }
+
+    fn is_vblank(&self) -> bool {
+        self.ppu.is_vblank()
+    }
 }
 
 impl Cartridge for Inner2 {
@@ -279,6 +287,9 @@ pub trait Ppu {
     fn ppu_write(&mut self, addr: u16, data: u8);
 
     fn ppu_tick(&mut self);
+
+    fn is_hblank(&self) -> bool;
+    fn is_vblank(&self) -> bool;
 }
 
 pub trait Timing {

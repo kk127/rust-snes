@@ -51,7 +51,7 @@ fn main() -> Result<(), String> {
         canvas.clear();
 
         snes.exec_frame();
-        let screen = snes.context.inner1.inner2.ppu.screen;
+        let screen = snes.context.inner1.inner2.ppu.frame;
 
         for x in 0..256 {
             for y in 0..224 {
