@@ -1,4 +1,4 @@
-use crate::context;
+use crate::{context, counter};
 use modular_bitfield::prelude::*;
 
 use log::debug;
@@ -462,21 +462,16 @@ impl Ppu {
             }
 
             _ => {
-                // println!("Write unimplemeted, addr: {:x}, data: {:x}", addr, data);
                 debug!("Write unimplemeted, addr: {:x}, data: {:x}", addr, data);
             }
         }
     }
 
     pub fn tick(&mut self, ctx: &mut impl Context) {
-        // println!("cgram: {:?}", self.cgram);
         loop {
             if self.counter + 4 > ctx.now() {
                 break;
             }
-            // println!("ppu tick");
-            // println!("frame_number: {}", self.frame_number);
-            // println!("x: {}, y: {}", self.x, self.y);
 
             self.counter += 4;
 
@@ -509,11 +504,14 @@ impl Ppu {
                         }
                     }
                 }
+
+                if self.y == 225 {
+                    self.is_vblank = true;
+                }
             }
 
             if self.x == 0 && self.y == 225 {
                 ctx.set_nmi_flag(true);
-                self.is_vblank = true;
             }
 
             if self.x == 1 {
@@ -522,6 +520,10 @@ impl Ppu {
 
             if (self.x, self.y) == (6, 0) {
                 self.is_hdma_reload = true;
+            }
+            if self.x == 134 {
+                // DRAM refresh
+                ctx.elapse(40);
             }
             if self.x == 278 && (0..=224).contains(&self.y) {
                 self.is_hdma_transfer = true;
@@ -540,7 +542,31 @@ impl Ppu {
             if self.x == 22 && (1..225).contains(&self.y) {
                 self.render_line(self.y - 1);
             }
+
+            match ctx.get_hv_irq_enable() {
+                1 => {
+                    if self.x == ctx.get_h_count() {
+                        ctx.set_irq(true);
+                    }
+                }
+                2 => {
+                    if self.x == 0 && self.y == ctx.get_v_count() {
+                        ctx.set_irq(true);
+                    }
+                }
+                3 => {
+                    if self.x == ctx.get_h_count() && self.y == ctx.get_v_count() {
+                        ctx.set_irq(true);
+                    }
+                }
+                _ => {}
+            }
         }
+
+        let mut counter = ctx.counter_mut();
+        counter.frame = self.frame_number;
+        counter.x = self.x as u64;
+        counter.y = self.y as u64;
     }
 
     fn render_line(&mut self, y: u16) {
@@ -556,11 +582,6 @@ impl Ppu {
             self.sub_screen[i] = PixelInfo::new(self.color_math_sub_screen_backdrop_color.get_bgr(), 13, Layer::Backdrop);
         }
         for (bg_index, &bpp) in bpp_mode.iter().enumerate() {
-            println!("bg_index: {}", bg_index);
-            // TODO for debug
-            // if bg_index != 0 {
-            //     break;
-            // }
             let (tile_w_num, tile_h_num) = self.bg_screen_base_and_size[bg_index].get_tile_num();
             let tile_size = self.bg_ctrl.get_tile_size(bg_index);
             let tile_base_addr = self.bg_tile_base_addr[bg_index] as usize * 8 * 1024;
@@ -655,7 +676,6 @@ impl Ppu {
             + bg_map_index as usize * 2)
             & 0xFFFE;
         // debug!("x: {}, y: {}, bg_map_base: 0x{:x}", x, y, bg_map_addr);
-        // println!("bg_map_base: 0x{:x}", bg_map_addr);
 
         let bg_map_entry = BGMapEntry::from_bytes([
             self.vram[bg_map_addr as usize],

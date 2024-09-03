@@ -1,11 +1,10 @@
+#[derive(Debug, Default)]
 pub struct Counter {
     counter: u64,
-}
 
-impl Default for Counter {
-    fn default() -> Counter {
-        Counter { counter: 0 }
-    }
+    pub frame: u64,
+    pub x: u64,
+    pub y: u64,
 }
 
 impl Counter {

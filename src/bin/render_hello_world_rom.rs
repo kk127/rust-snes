@@ -33,6 +33,7 @@ fn main() -> Result<(), String> {
     let mut event_pump = sdl2_context.event_pump()?;
 
     'running: loop {
+        let start_time = std::time::Instant::now();
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -73,7 +74,11 @@ fn main() -> Result<(), String> {
         canvas.present();
 
         // 16ms待機して約60FPSを維持
-        std::thread::sleep(Duration::from_millis(16));
+        // std::thread::sleep(Duration::from_millis(16));
+        let elapsed = start_time.elapsed();
+        if elapsed < Duration::from_millis(16) {
+            std::thread::sleep(Duration::from_millis(16) - elapsed);
+        }
     }
 
     Ok(())

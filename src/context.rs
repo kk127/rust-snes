@@ -92,6 +92,14 @@ impl Timing for Inner1 {
     fn now(&self) -> u64 {
         self.inner2.now()
     }
+
+    fn counter(&self) -> &counter::Counter {
+        self.inner2.counter()
+    }
+
+    fn counter_mut(&mut self) -> &mut counter::Counter {
+        self.inner2.counter_mut()
+    }
 }
 
 impl Interrupt for Inner1 {
@@ -117,6 +125,30 @@ impl Interrupt for Inner1 {
 
     fn get_hv_irq_enable(&self) -> u8 {
         self.inner2.get_hv_irq_enable()
+    }
+
+    fn set_h_count(&mut self, val: u16) {
+        self.inner2.set_h_count(val)
+    }
+
+    fn get_h_count(&self) -> u16 {
+        self.inner2.get_h_count()
+    }
+
+    fn set_v_count(&mut self, val: u16) {
+        self.inner2.set_v_count(val)
+    }
+
+    fn get_v_count(&self) -> u16 {
+        self.inner2.get_v_count()
+    }
+
+    fn set_irq(&mut self, flag: bool) {
+        self.inner2.set_irq(flag)
+    }
+
+    fn irq_occurred(&self) -> bool {
+        self.inner2.irq_occurred()
     }
 
     fn set_joypad_enable(&mut self, flag: bool) {
@@ -170,6 +202,14 @@ impl Timing for Inner2 {
     fn now(&self) -> u64 {
         self.inner.timing.now()
     }
+
+    fn counter(&self) -> &counter::Counter {
+        &self.inner.timing
+    }
+
+    fn counter_mut(&mut self) -> &mut counter::Counter {
+        &mut self.inner.timing
+    }
 }
 
 impl Interrupt for Inner2 {
@@ -197,6 +237,30 @@ impl Interrupt for Inner2 {
         self.inner.interrupt.set_hv_irq_enable(val)
     }
 
+    fn set_h_count(&mut self, val: u16) {
+        self.inner.interrupt.set_h_count(val)
+    }
+
+    fn get_h_count(&self) -> u16 {
+        self.inner.interrupt.get_h_count()
+    }
+
+    fn set_v_count(&mut self, val: u16) {
+        self.inner.interrupt.set_v_count(val)
+    }
+
+    fn get_v_count(&self) -> u16 {
+        self.inner.interrupt.get_v_count()
+    }
+
+    fn set_irq(&mut self, flag: bool) {
+        self.inner.interrupt.set_irq(flag)
+    }
+
+    fn irq_occurred(&self) -> bool {
+        self.inner.interrupt.irq_occurred()
+    }
+
     fn set_joypad_enable(&mut self, flag: bool) {
         self.inner.interrupt.set_joypad_enable(flag)
     }
@@ -208,6 +272,14 @@ impl Timing for Inner3 {
     }
     fn now(&self) -> u64 {
         self.timing.now()
+    }
+
+    fn counter(&self) -> &counter::Counter {
+        &self.timing
+    }
+
+    fn counter_mut(&mut self) -> &mut counter::Counter {
+        &mut self.timing
     }
 }
 
@@ -234,6 +306,30 @@ impl Interrupt for Inner3 {
 
     fn get_hv_irq_enable(&self) -> u8 {
         self.interrupt.get_hv_irq_enable()
+    }
+
+    fn set_h_count(&mut self, val: u16) {
+        self.interrupt.set_h_count(val)
+    }
+
+    fn get_h_count(&self) -> u16 {
+        self.interrupt.get_h_count()
+    }
+
+    fn set_v_count(&mut self, val: u16) {
+        self.interrupt.set_v_count(val)
+    }
+
+    fn get_v_count(&self) -> u16 {
+        self.interrupt.get_v_count()
+    }
+
+    fn set_irq(&mut self, flag: bool) {
+        self.interrupt.set_irq(flag)
+    }
+
+    fn irq_occurred(&self) -> bool {
+        self.interrupt.irq_occurred()
     }
 
     fn set_joypad_enable(&mut self, flag: bool) {
@@ -304,6 +400,9 @@ pub trait Ppu {
 pub trait Timing {
     fn elapse(&mut self, clock: u64);
     fn now(&self) -> u64;
+
+    fn counter(&self) -> &counter::Counter;
+    fn counter_mut(&mut self) -> &mut counter::Counter;
 }
 
 pub trait Cartridge {
@@ -318,5 +417,11 @@ pub trait Interrupt {
     fn set_nmi_enable(&mut self, flag: bool);
     fn set_hv_irq_enable(&mut self, val: u8);
     fn get_hv_irq_enable(&self) -> u8;
+    fn set_h_count(&mut self, val: u16);
+    fn get_h_count(&self) -> u16;
+    fn set_v_count(&mut self, val: u16);
+    fn get_v_count(&self) -> u16;
+    fn set_irq(&mut self, flag: bool);
+    fn irq_occurred(&self) -> bool;
     fn set_joypad_enable(&mut self, flag: bool);
 }

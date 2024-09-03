@@ -8,7 +8,6 @@ fn main() {
     for &base in base.iter() {
         if base + 0x100 > rom.len() {
             println!("over");
-            println!();
             continue;
         }
         let check_sum_comp =

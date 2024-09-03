@@ -3,8 +3,8 @@ use std::f64::consts::E;
 use crate::context;
 
 use log::{debug, info};
-trait Context: context::Bus + context::Timing {}
-impl<T: context::Bus + context::Timing> Context for T {}
+trait Context: context::Bus + context::Timing + context::Interrupt {}
+impl<T: context::Bus + context::Timing + context::Interrupt> Context for T {}
 
 const CPU_CYCLE: u64 = 6;
 const RESET_VECTOR: u16 = 0xFFFC;
@@ -23,6 +23,8 @@ pub struct Cpu {
 
     stop: bool,
     halt: bool,
+
+    prev_counter: u64,
 
     // TODO: for debug
     instruction_count: u64,
@@ -44,6 +46,8 @@ impl Default for Cpu {
 
             stop: false,
             halt: false,
+
+            prev_counter: 0,
 
             instruction_count: 0,
         }
@@ -275,6 +279,7 @@ impl Cpu {
         self.db = 0;
         self.pb = 0;
         self.e = true;
+        ctx.elapse(170);
     }
 
     fn get_pc24(&self) -> u32 {
@@ -692,11 +697,33 @@ impl Cpu {
     }
 
     pub fn excecute_instruction(&mut self, ctx: &mut impl Context) {
+        self.excecute_instruction_(ctx);
+        self.prev_counter = ctx.now();
+    }
+
+    pub fn excecute_instruction_(&mut self, ctx: &mut impl Context) {
+        if self.prev_counter < ctx.now() {
+            debug!("prev_couter: {}, now: {}", self.prev_counter, ctx.now());
+            return;
+        }
+
+        if ctx.nmi_occurred() {
+            let _ = ctx.bus_read(self.get_pc24());
+            ctx.elapse(CPU_CYCLE);
+            self.exeption(Exeption::Nmi, ctx);
+            return;
+        }
+
+        if ctx.irq_occurred() && !self.p.i {
+            let _ = ctx.bus_read(self.get_pc24());
+            ctx.elapse(CPU_CYCLE);
+            self.exeption(Exeption::Irq, ctx);
+            return;
+        }
+
         let debug_pc = self.get_pc24();
         let opcode = self.fetch_8(ctx);
-        // println!("cpu counter: {}", ctx.now());
         self.instruction_count += 1;
-        // println!("OpCode: {:02X}", opcode);
         match opcode {
             0x00 => self.brk(ctx),
             0x01 => self.alu(ctx, AluType::Or, AddressingMode::DirectIndexedIndirect),
@@ -1018,10 +1045,14 @@ impl Cpu {
 
             _ => unimplemented!(),
         }
-        info!("Count: {}, PC: {:06x} opcode: {:02X} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
+        info!("Count: {}, now: {}, PC: {:06x} opcode: {:02X}, frame:x:y: {}:{}:{} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
         self.instruction_count,
+        ctx.now(),
         debug_pc,
         opcode,
+        ctx.counter().frame,
+        ctx.counter().x,
+        ctx.counter().y,
         self.a,
         self.x,
         self.y,
@@ -1222,7 +1253,7 @@ impl Cpu {
 
     fn lda(&mut self, ctx: &mut impl Context, addressing_mode: AddressingMode) {
         let mut addr = self.get_warp_address(addressing_mode, ctx);
-        ctx.elapse(CPU_CYCLE);
+        // ctx.elapse(CPU_CYCLE);
         if self.is_a_register_8bit() {
             let data = addr.read_8(ctx);
             self.set_nz(data);

@@ -1,4 +1,5 @@
-use context::{Bus, Cpu, Ppu};
+use context::{Bus, Cpu, Ppu, Timing};
+use log::debug;
 
 mod bus;
 mod cartridge;
@@ -27,16 +28,14 @@ impl Snes {
 
     pub fn exec_frame(&mut self) {
         let frame = self.context.inner1.inner2.ppu.frame_number;
-        // println!("~~~~~~frame_number: {}", frame);
-        // println!("ooooooooooooooooooooooooooooooooooooooo");
         while frame == self.context.inner1.inner2.ppu.frame_number {
+            debug!("Before exec_one: now: {}", self.context.inner1.inner2.now());
             self.context.exce_one();
+            debug!("After exce_one: now: {}", self.context.inner1.inner2.now());
             self.context.inner1.inner2.ppu_tick();
+            debug!("After ppu_tick: now: {}", self.context.inner1.inner2.now());
             self.context.inner1.bus_tick();
-            // println!(
-            //     "ppu frame_number: {}",
-            //     self.context.inner1.inner2.ppu.frame_number
-            // );
+            debug!("After bus_tick: now: {}", self.context.inner1.inner2.now());
         }
     }
 }
