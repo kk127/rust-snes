@@ -1,4 +1,4 @@
-use log::{debug, info};
+use log::{debug, info, warn};
 use modular_bitfield::bitfield;
 use modular_bitfield::prelude::*;
 
@@ -423,6 +423,7 @@ impl Bus {
                     ctx.elapse(CYCLE_SLOW);
                 }
                 self.wram[(addr & 0x1FFFF) as usize] = data;
+                debug!("Write WRAM: {addr:04X} = {data:02X}");
             }
             0xC0..=0xFF => {
                 if !self.is_dma_active {
@@ -468,7 +469,7 @@ impl Bus {
             }
             0xa => self.dma[ch].hdma_line_counter = data,
             0xb => self.dma[ch].unused = data,
-            _ => unreachable!("Invalid index: {}", index),
+            _ => warn!("Invalid DMA index: {}", index),
         }
     }
 
@@ -480,7 +481,7 @@ impl Bus {
 
         debug!("GDMA Exec: start: {}", ctx.now());
         self.is_dma_active = true;
-        ctx.elapse(8 - ctx.now() % 8);
+        // ctx.elapse(8 - ctx.now() % 8);
         let ch = self.gdma_enable.trailing_zeros() as usize;
         // ctx.elapse(8);
         let transfer_unit = self.dma[ch].transfer_unit();
@@ -490,8 +491,8 @@ impl Bus {
             AbusAddressStep::Decrement => (-1 as i16) as u16,
             AbusAddressStep::Fixed3 => 0,
         };
-        ctx.elapse(8);
         for i in 0..transfer_unit.len() {
+            ctx.elapse(8);
             let a_bus = (self.dma[ch].a_bus_bank as u32) << 16 | self.dma[ch].a_bus_address as u32;
             let b_bus = 0x2100 | self.dma[ch].b_bus_address.wrapping_add(transfer_unit[i]) as u32;
 
@@ -520,6 +521,7 @@ impl Bus {
                 ctx.elapse(16);
                 break;
             }
+            debug!("a_bus: {:06X}, b_bus: {:06X}", a_bus, b_bus);
         }
         debug!(
             "GDMA[{ch}]: {:02X}:{:04X} {} 21{:02X}, trans: {:?}, count: {}, now: {}",

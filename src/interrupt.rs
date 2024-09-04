@@ -4,6 +4,7 @@ pub struct Interrupt {
     nmi_flag: bool,
     nmi_enable: bool,
     nmi: bool,
+    nmi_raise: bool,
 
     // irq
     hv_irq_enable: u8, // 0x4200.4-5 0=Disable, 1=At H=H + V=Any, 2=At V=V + H=0, 3=At H=H + V=V
@@ -26,7 +27,7 @@ impl Interrupt {
         let prev = self.nmi & self.nmi_enable;
         self.nmi_flag = flag;
         if !prev && self.nmi_enable && self.nmi_enable {
-            self.nmi = true;
+            self.nmi_raise = true;
         }
     }
 
@@ -34,12 +35,15 @@ impl Interrupt {
         let prev = self.nmi & self.nmi_enable;
         self.nmi_enable = flag;
         if !prev && self.nmi_enable && self.nmi_enable {
-            self.nmi = true;
+            self.nmi_raise = true;
         }
     }
 
-    pub fn nmi_occurred(&self) -> bool {
-        self.nmi
+    pub fn nmi_occurred(&mut self) -> bool {
+        let ret = self.nmi;
+        self.nmi = self.nmi_raise;
+        self.nmi_raise = false;
+        ret
     }
 
     pub fn set_hv_irq_enable(&mut self, val: u8) {

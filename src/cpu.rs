@@ -152,6 +152,8 @@ enum WarpMode {
     Warp16bit,
     NoWarp,
 }
+
+#[derive(Debug)]
 struct WarpAddress {
     addr: u32,
     mode: WarpMode,
@@ -170,7 +172,7 @@ impl WarpAddress {
             WarpMode::Warp16bit => {
                 self.addr & 0xFF0000 | (self.addr as u16).wrapping_add(offset) as u32
             }
-            WarpMode::NoWarp => (self.addr + offset as u32) & 0xFFFFF,
+            WarpMode::NoWarp => (self.addr + offset as u32) & 0xFFFFFF,
         };
         WarpAddress {
             addr,
@@ -205,6 +207,7 @@ impl WarpAddress {
     }
 }
 
+#[derive(Debug, PartialEq)]
 enum Exeption {
     Cop,
     Brk,
@@ -376,6 +379,8 @@ impl Cpu {
     }
 
     fn exeption(&mut self, exeption: Exeption, ctx: &mut impl Context) {
+        debug!("Exception: {:?}", exeption);
+        self.halt = false;
         if self.e {
             let flag = matches!(exeption, Exeption::Brk | Exeption::Cop);
             self.p.x = flag;
@@ -721,6 +726,15 @@ impl Cpu {
             return;
         }
 
+        if self.halt {
+            if ctx.irq_occurred() {
+                self.halt = false;
+            } else {
+                ctx.elapse(CPU_CYCLE);
+                return;
+            }
+        }
+
         let debug_pc = self.get_pc24();
         let opcode = self.fetch_8(ctx);
         self.instruction_count += 1;
@@ -1045,7 +1059,7 @@ impl Cpu {
 
             _ => unimplemented!(),
         }
-        info!("Count: {}, now: {}, PC: {:06x} opcode: {:02X}, frame:x:y: {}:{}:{} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
+        debug!("Count: {}, now: {}, PC: {:06x} opcode: {:02X}, frame:x:y: {}:{}:{} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
         self.instruction_count,
         ctx.now(),
         debug_pc,
@@ -1759,7 +1773,6 @@ impl Cpu {
                 Register::Y => self.y as u8,
                 _ => unreachable!(),
             };
-            debug!("cmp_xy 8bit");
             // let b = self.get_warp_address(addressing_mode, ctx).read_8(ctx);
             let b = if addressing_mode == AddressingMode::Immediate {
                 self.fetch_8(ctx)
@@ -1770,7 +1783,6 @@ impl Cpu {
             self.p.c = !carry;
             self.set_nz(c);
         } else {
-            debug!("cmp_xy 16bit");
             let a = match reg {
                 Register::X => self.x,
                 Register::Y => self.y,
@@ -1803,7 +1815,6 @@ impl Cpu {
                 self.p.v = (data >> 6) & 1 == 1;
             }
             self.p.z = (self.a as u8) & data == 0;
-            info!("bit: {:04x} {:04x}", self.a, data);
         } else {
             // let data = self.get_warp_address(addressing_mode, ctx).read_16(ctx);
             let data = if addressing_mode == AddressingMode::Immediate {
@@ -1816,7 +1827,6 @@ impl Cpu {
                 self.p.v = (data >> 14) & 1 == 1;
             }
             self.p.z = self.a & data == 0;
-            info!("bit: {:04x} {:04x}", self.a, data);
         }
     }
 

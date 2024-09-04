@@ -8,3 +8,5 @@ cargo.lock
 .DS_Store
 
 /tests
+/debug_output
+

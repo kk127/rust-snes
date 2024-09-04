@@ -111,7 +111,7 @@ impl Interrupt for Inner1 {
         self.inner2.set_nmi_flag(flag)
     }
 
-    fn nmi_occurred(&self) -> bool {
+    fn nmi_occurred(&mut self) -> bool {
         self.inner2.nmi_occurred()
     }
 
@@ -221,7 +221,7 @@ impl Interrupt for Inner2 {
         self.inner.interrupt.set_nmi_flag(flag)
     }
 
-    fn nmi_occurred(&self) -> bool {
+    fn nmi_occurred(&mut self) -> bool {
         self.inner.interrupt.nmi_occurred()
     }
 
@@ -292,7 +292,7 @@ impl Interrupt for Inner3 {
         self.interrupt.set_nmi_flag(flag)
     }
 
-    fn nmi_occurred(&self) -> bool {
+    fn nmi_occurred(&mut self) -> bool {
         self.interrupt.nmi_occurred()
     }
 
@@ -413,7 +413,7 @@ pub trait Cartridge {
 pub trait Interrupt {
     fn get_nmi_flag(&mut self) -> bool;
     fn set_nmi_flag(&mut self, flag: bool);
-    fn nmi_occurred(&self) -> bool;
+    fn nmi_occurred(&mut self) -> bool;
     fn set_nmi_enable(&mut self, flag: bool);
     fn set_hv_irq_enable(&mut self, val: u8);
     fn get_hv_irq_enable(&self) -> u8;

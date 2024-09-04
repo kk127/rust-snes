@@ -1,7 +1,7 @@
 use crate::{context, counter};
 use modular_bitfield::prelude::*;
 
-use log::debug;
+use log::{debug, warn};
 trait Context: context::Timing + context::Interrupt  {}
 impl<T: context::Timing + context::Interrupt> Context for T {}
 
@@ -20,6 +20,7 @@ const BG_MODE_BPP: [&[usize]; 8] = [
     &[8],           // Mode7 
 ];
 
+const OBJ_PRIORITY: [u8; 4] = [10, 7, 4, 1];
 
 pub struct Ppu {
     pub frame: [u16; FRAME_WIDTH * FRAME_HEIGHT],
@@ -42,7 +43,7 @@ pub struct Ppu {
 
     // Ppu control registers
     display_control: DisplayCtrl,               // $2100, $2133
-    object_size_and_base: ObjectSizAndBase,     // $2101
+    object_size_and_base: ObjectSizeAndBase,     // $2101
     screen_main_designation: ScreenDesignation, // $212C
     screen_sub_designation: ScreenDesignation,  // $212D
 
@@ -293,7 +294,9 @@ impl Ppu {
                 ret
             }
             _ => {
-                unimplemented!("Read unimplemeted, addr: {:x}", addr);
+                warn!("Read Ppu write only register, addr: {:x}", addr);
+                // TODO return ppu open bus
+                0
             }
         }
     }
@@ -458,7 +461,7 @@ impl Ppu {
             }
             0x2133 => self.display_control.bytes[1] = data,
             0x2134..=0x213F => {
-                unreachable!("Write PPU register, addr: {:x}, data: {:x}", addr, data);
+                warn!("Write PPU read only register, addr: {:x}, data: {:x}", addr, data);
             }
 
             _ => {
@@ -571,6 +574,7 @@ impl Ppu {
 
     fn render_line(&mut self, y: u16) {
         self.render_bg(y);
+        self.render_obj(y);
         self.color_math(y);
     }
 
@@ -585,6 +589,7 @@ impl Ppu {
             let (tile_w_num, tile_h_num) = self.bg_screen_base_and_size[bg_index].get_tile_num();
             let tile_size = self.bg_ctrl.get_tile_size(bg_index);
             let tile_base_addr = self.bg_tile_base_addr[bg_index] as usize * 8 * 1024;
+            debug!("tile base addr: 0x{:x}", tile_base_addr);
             let screen_width = tile_w_num * tile_size;
             let screen_height = tile_h_num * tile_size;
 
@@ -594,6 +599,9 @@ impl Ppu {
                 let screen_y = (y as usize + self.bg_vofs[bg_index] as usize) % screen_height;
 
                 let mut bg_map_base_addr = self.bg_screen_base_and_size[bg_index].get_bg_map_base_addr();
+                if x == 0 {
+                    debug!("bg_map_base_addr: 0x{:x}", bg_map_base_addr);
+                }
                 let mut tile_x_index = screen_x / tile_size;
                 let mut tile_y_index = screen_y / tile_size;
                 if tile_x_index >= 32 {
@@ -660,10 +668,120 @@ impl Ppu {
         }
     }
 
+    fn render_obj(&mut self, y: u16) {
+        for i in 0..128 {
+            let oam_entry = OamEntry::from_bytes(self.oam[i * 4..i * 4 + 4].try_into().unwrap());
+            let addition_addr = 0x200 + (i / 4) ;
+            let addition_offset = i % 4;
+            let upper_x = ((self.oam[addition_addr] >> (addition_offset * 2)) & 1) as usize;
+            let obj_size_index = ((self.oam[addition_addr] >> (addition_offset * 2 + 1)) & 1) as usize;
+
+            let obj_pos_x = (upper_x << 8) | oam_entry.x() as usize;
+            let obj_pos_y =  oam_entry.y() as usize;
+
+            let obj_size = self.object_size_and_base.obj_size()[obj_size_index];
+
+            for offset_y in 0..obj_size {
+                let pixel_y = (obj_pos_y + offset_y) % 256;
+                if pixel_y != y as usize {
+                    continue;
+                }
+                for offset_x in 0..obj_size {
+                    let pixel_x = (obj_pos_x + offset_x) % 512;
+                    if pixel_x >= 256 {
+                        continue;
+                    }
+
+                    let mut tile_x = if oam_entry.attribute().x_flip() { (obj_size -1) ^ offset_x } else { offset_x };
+                    let mut tile_y = if oam_entry.attribute().y_flip() { (obj_size -1) ^ offset_y } else { offset_y };
+
+                    let mut tile_index = ((oam_entry.attribute().tile_page() as usize) << 8) |  oam_entry.tile_number() as usize;
+                    // x方向は0x01ずれる
+                    tile_index = (tile_index & 0x1F0) | (((tile_index & 0x0F) + tile_x / 8 ) & 0x0F);
+                    // y方向は0x10ずれる
+                    tile_index = (((tile_index & 0x1F0) + tile_y / 8 * 0x10) & 0x1F0) | (tile_index & 0x0F);
+
+                    tile_x %= 8;
+                    tile_y %= 8;
+
+                    let mut tile_base_addr = self.object_size_and_base.base_addr_for_obj_tiles() as usize * 16 * 1024;
+                    if oam_entry.attribute().tile_page() == 1 {
+                        debug!("gap_between_obj: {}", self.object_size_and_base.gap_between_obj() as usize * 0x2000);
+                        tile_base_addr += self.object_size_and_base.gap_between_obj() as usize * 8 * 1024;
+                    }
+                    tile_base_addr &= 0xFFFF;
+
+
+                    let tile_addr = tile_base_addr + tile_index * 32;
+                    if pixel_x == 73 && pixel_y == 0 {
+                        debug!("oam_entry: {:?}", oam_entry);
+                        debug!("gap_between_obj: {}", self.object_size_and_base.gap_between_obj());
+                        debug!("tile base addr: 0x{:x}", tile_base_addr);
+                        debug!("tile index: 0x{:x}", tile_index);
+                    }
+                    let mut color_index = 0;
+                    for i in 0..2 {
+                        let bit_addr = (tile_addr + i * 16 + tile_y * 2) & 0xFFFE;
+                        let low = (self.vram[bit_addr] >> (7 - tile_x)) & 1;
+                        let high = (self.vram[bit_addr + 1] >> (7 - tile_x)) & 1;
+                        color_index |= low << (i * 2);
+                        color_index |= high << (i * 2 + 1);
+                    } 
+                    
+                    if color_index == 0 {
+                        continue;
+                    }
+                    let obj_priority = OBJ_PRIORITY[oam_entry.attribute().priority() as usize];
+                    if obj_priority < self.main_screen[pixel_x].priority {
+                        let cgram_addr =  128 + oam_entry.attribute().palette_number() as usize * 16 + color_index as usize;
+                        let color = self.cgram[cgram_addr];
+                        let layer = if (0..=3).contains(&oam_entry.attribute().palette_number()) {
+                            Layer::ObjPallete0_3
+                        } else {
+                            Layer::ObjPallete4_7
+                        };
+                        self.main_screen[pixel_x] = PixelInfo::new(color, obj_priority, layer);
+                    } 
+                    if obj_priority < self.sub_screen[pixel_x].priority {
+                        let cgram_addr =  128 + oam_entry.attribute().palette_number() as usize * 16 + color_index as usize;
+                        let color = self.cgram[cgram_addr];
+                        let layer = if (0..=3).contains(&oam_entry.attribute().palette_number()) {
+                            Layer::ObjPallete0_3
+                        } else {
+                            Layer::ObjPallete4_7
+                        };
+                        self.sub_screen[pixel_x] = PixelInfo::new(color, obj_priority, layer);
+                    }
+
+                }
+            }
+        }
+    }
+
     fn color_math(&mut self, y: u16) {
+        let bright_ness = self.display_control.brightness();
         for i in 0..FRAME_WIDTH {
-            let main_color = self.main_screen[i];
-            let sub_color = self.sub_screen[i];
+            let mut main_color = self.main_screen[i];
+            let mut sub_color = self.sub_screen[i];
+
+            if bright_ness == 0 {
+                main_color.r = 0;
+                main_color.g = 0;
+                main_color.b = 0;
+                sub_color.r = 0;
+                sub_color.g = 0;
+                sub_color.b = 0;
+            } else {
+                debug!("Bright_ness: {}", bright_ness);
+                debug!("Before main_color: r: {}, g: {}, b: {}", main_color.r, main_color.g, main_color.b);
+                main_color.r = ((main_color.r as u16 * (bright_ness + 1) as u16) / 16) as u8;
+                main_color.g = ((main_color.g as u16 * (bright_ness + 1) as u16) / 16) as u8;
+                main_color.b = ((main_color.b as u16 * (bright_ness + 1) as u16) / 16) as u8;
+                sub_color.r = ((sub_color.r as u16 * (bright_ness + 1) as u16) / 16) as u8;
+                sub_color.g = ((sub_color.g as u16 * (bright_ness + 1) as u16) / 16) as u8;
+                sub_color.b = ((sub_color.b as u16 * (bright_ness + 1) as u16) / 16) as u8;
+                debug!("After main_color: r: {}, g: {}, b: {}", main_color.r, main_color.g, main_color.b);
+            }
             // let color = self.color_math_ctrl.calc_color(main_color, sub_color);
             self.frame[y as usize * FRAME_WIDTH + i] = (main_color.b as u16) << 10 | (main_color.g as u16) << 5 | main_color.r as u16;
         }
@@ -801,8 +919,8 @@ enum Layer {
     Bg2,
     Bg3,
     Bg4,
-    Obj0_3,
-    Obj4_7,
+    ObjPallete0_3,
+    ObjPallete4_7,
     #[default]
     Backdrop,
 }
@@ -914,12 +1032,47 @@ impl BGScreenBaseSize {
     }
 }
 
+#[bitfield(bits = 32)]
+#[derive(Debug)]
+struct OamEntry {
+    x: B8,
+    y: B8,
+    tile_number: B8,
+    attribute: Attribute
+}
+
+#[bitfield(bits = 8)]
+#[derive(BitfieldSpecifier, Debug)]
+struct Attribute {
+    tile_page: B1,
+    palette_number: B3,
+    priority: B2,
+    x_flip: bool,
+    y_flip: bool,
+}
+
+
 #[bitfield(bits = 8)]
 #[derive(Default)]
-struct ObjectSizAndBase {
+struct ObjectSizeAndBase {
     base_addr_for_obj_tiles: B3,
     gap_between_obj: B2,
     obj_size_selection: ObjectSizeSelection,
+}
+
+impl ObjectSizeAndBase {
+    fn obj_size(&self) -> [usize; 2] {
+        match self.obj_size_selection() {
+            ObjectSizeSelection::Size8x8_16x16 => [8, 16],
+            ObjectSizeSelection::Size8x8_32x32 => [8, 32],
+            ObjectSizeSelection::Size8x8_64x64 => [8, 64],
+            ObjectSizeSelection::Size16x16_32x32 => [16, 32],
+            ObjectSizeSelection::Size16x16_64x64 => [16, 64],
+            ObjectSizeSelection::Size32x32_64x64 => [32, 64],
+            ObjectSizeSelection::Size16x32_32x64 => [16, 32],
+            ObjectSizeSelection::Size16x32_32x32 => [16, 32],
+        }
+    }
 }
 
 #[bits = 3]
