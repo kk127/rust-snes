@@ -1,4 +1,4 @@
-use std::f64::consts::E;
+use std::{f64::consts::E, ptr::addr_eq};
 
 use crate::context;
 
@@ -708,7 +708,7 @@ impl Cpu {
 
     pub fn excecute_instruction_(&mut self, ctx: &mut impl Context) {
         if self.prev_counter < ctx.now() {
-            debug!("prev_couter: {}, now: {}", self.prev_counter, ctx.now());
+            // debug!("prev_couter: {}, now: {}", self.prev_counter, ctx.now());
             return;
         }
 

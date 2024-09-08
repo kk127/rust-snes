@@ -151,10 +151,8 @@ impl Bus {
                         //     ctx.elapse(CYCLE_SLOW);
                         // }
                         if bank & 0x80 == 0 {
-                            debug!("Cycle slow");
                             ctx.elapse(CYCLE_SLOW);
                         } else {
-                            debug!("Cycle fast");
                             ctx.elapse(self.access_cycle_for_memory2);
                         }
                     }
@@ -391,7 +389,7 @@ impl Bus {
                         let index = offset as usize & 0xF;
                         self.dma_write(ctx, ch, index, data);
                     }
-                    0x8000..=0xFFFF => {
+                    0x6000..=0xFFFF => {
                         if !self.is_dma_active {
                             if (0x80..=0xBF).contains(&bank) {
                                 ctx.elapse(self.access_cycle_for_memory2);
@@ -474,11 +472,11 @@ impl Bus {
     }
 
     fn gdma_exec(&mut self, ctx: &mut impl Context) {
-        debug!("gdma_enable: {:08b}", self.gdma_enable);
         if self.gdma_enable == 0 {
             return;
         }
 
+        debug!("gdma_enable: {:08b}", self.gdma_enable);
         debug!("GDMA Exec: start: {}", ctx.now());
         self.is_dma_active = true;
         // ctx.elapse(8 - ctx.now() % 8);

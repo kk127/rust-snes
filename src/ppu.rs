@@ -37,9 +37,9 @@ pub struct Ppu {
     is_hdma_reload: bool,
     is_hdma_transfer: bool,
 
-    vram: [u8; 0x10000], // 64KB
+    pub vram: [u8; 0x10000], // 64KB
     cgram: [u16; 0x100], // 512B
-    oam: [u8; 0x220],    // 544B
+    pub oam: [u8; 0x220],    // 544B
 
     // Ppu control registers
     display_control: DisplayCtrl,               // $2100, $2133
@@ -772,15 +772,12 @@ impl Ppu {
                 sub_color.g = 0;
                 sub_color.b = 0;
             } else {
-                debug!("Bright_ness: {}", bright_ness);
-                debug!("Before main_color: r: {}, g: {}, b: {}", main_color.r, main_color.g, main_color.b);
                 main_color.r = ((main_color.r as u16 * (bright_ness + 1) as u16) / 16) as u8;
                 main_color.g = ((main_color.g as u16 * (bright_ness + 1) as u16) / 16) as u8;
                 main_color.b = ((main_color.b as u16 * (bright_ness + 1) as u16) / 16) as u8;
                 sub_color.r = ((sub_color.r as u16 * (bright_ness + 1) as u16) / 16) as u8;
                 sub_color.g = ((sub_color.g as u16 * (bright_ness + 1) as u16) / 16) as u8;
                 sub_color.b = ((sub_color.b as u16 * (bright_ness + 1) as u16) / 16) as u8;
-                debug!("After main_color: r: {}, g: {}, b: {}", main_color.r, main_color.g, main_color.b);
             }
             // let color = self.color_math_ctrl.calc_color(main_color, sub_color);
             self.frame[y as usize * FRAME_WIDTH + i] = (main_color.b as u16) << 10 | (main_color.g as u16) << 5 | main_color.r as u16;

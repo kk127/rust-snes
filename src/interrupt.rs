@@ -24,17 +24,17 @@ impl Interrupt {
     }
 
     pub fn set_nmi_flag(&mut self, flag: bool) {
-        let prev = self.nmi & self.nmi_enable;
+        let prev = self.nmi_flag & self.nmi_enable;
         self.nmi_flag = flag;
-        if !prev && self.nmi_enable && self.nmi_enable {
+        if !prev && self.nmi_enable && self.nmi_flag {
             self.nmi_raise = true;
         }
     }
 
     pub fn set_nmi_enable(&mut self, flag: bool) {
-        let prev = self.nmi & self.nmi_enable;
+        let prev = self.nmi_flag & self.nmi_enable;
         self.nmi_enable = flag;
-        if !prev && self.nmi_enable && self.nmi_enable {
+        if !prev && self.nmi_enable && self.nmi_flag {
             self.nmi_raise = true;
         }
     }
@@ -53,16 +53,16 @@ impl Interrupt {
         }
     }
 
+    pub fn get_hv_irq_enable(&self) -> u8 {
+        self.hv_irq_enable
+    }
+
     pub fn set_irq(&mut self, flag: bool) {
         self.irq = flag;
     }
 
     pub fn irq_occurred(&self) -> bool {
         self.irq
-    }
-
-    pub fn get_hv_irq_enable(&self) -> u8 {
-        self.hv_irq_enable
     }
 
     pub fn set_h_count(&mut self, val: u16) {
