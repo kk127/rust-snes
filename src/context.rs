@@ -1,4 +1,5 @@
-use crate::{bus, cartridge, counter, cpu, interrupt, ppu};
+use crate::{bus, cartridge, counter, cpu, interrupt, ppu, spc};
+use log::debug;
 
 // struct Context {
 //     cpu: cpu::Cpu,
@@ -21,6 +22,7 @@ pub struct Inner1 {
 pub struct Inner2 {
     pub ppu: ppu::Ppu,
     cartridge: cartridge::Cartridge,
+    spc: spc::Spc,
     pub inner: Inner3,
 }
 struct Inner3 {
@@ -48,6 +50,7 @@ impl Context {
                 bus: bus::Bus::default(),
                 inner2: Inner2 {
                     ppu: ppu::Ppu::default(),
+                    spc: spc::Spc::default(),
                     cartridge: cartridge::Cartridge::new(rom),
                     inner: Inner3 {
                         timing: counter::Counter::default(),
@@ -57,6 +60,7 @@ impl Context {
             },
         };
         ctx.cpu.reset(&mut ctx.inner1);
+        debug!("PC: {:04X}", ctx.cpu.pc);
         ctx
     }
 }
@@ -182,6 +186,20 @@ impl Ppu for Inner2 {
     }
     fn is_hdma_transfer_triggered(&mut self) -> bool {
         self.ppu.is_hdma_transfer_triggered()
+    }
+}
+
+impl Spc for Inner2 {
+    fn spc_read(&mut self, port: u16) -> u8 {
+        self.spc.read_port(port)
+    }
+
+    fn spc_write(&mut self, port: u16, data: u8) {
+        self.spc.write_port(port, data);
+    }
+
+    fn spc_tick(&mut self) {
+        self.spc.tick(&mut self.inner);
     }
 }
 
@@ -424,4 +442,10 @@ pub trait Interrupt {
     fn set_irq(&mut self, flag: bool);
     fn irq_occurred(&self) -> bool;
     fn set_joypad_enable(&mut self, flag: bool);
+}
+
+pub trait Spc {
+    fn spc_read(&mut self, addr: u16) -> u8;
+    fn spc_write(&mut self, addr: u16, data: u8);
+    fn spc_tick(&mut self);
 }

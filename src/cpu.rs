@@ -1,8 +1,6 @@
-use std::{f64::consts::E, ptr::addr_eq};
-
 use crate::context;
 
-use log::{debug, info};
+use log::debug;
 trait Context: context::Bus + context::Timing + context::Interrupt {}
 impl<T: context::Bus + context::Timing + context::Interrupt> Context for T {}
 
@@ -13,7 +11,7 @@ pub struct Cpu {
     a: u16,
     x: u16,
     y: u16,
-    pc: u16,
+    pub pc: u16,
     s: u16,
     p: Status,
     d: u16,
@@ -69,7 +67,7 @@ struct Status {
 impl From<u8> for Status {
     fn from(data: u8) -> Self {
         Status {
-            c: (data >> 0) & 1 == 1,
+            c: data & 1 == 1,
             z: (data >> 1) & 1 == 1,
             i: (data >> 2) & 1 == 1,
             d: (data >> 3) & 1 == 1,
@@ -84,7 +82,7 @@ impl From<u8> for Status {
 impl Into<u8> for Status {
     fn into(self) -> u8 {
         let mut data = 0;
-        data |= (self.c as u8) << 0;
+        data |= self.c as u8;
         data |= (self.z as u8) << 1;
         data |= (self.i as u8) << 2;
         data |= (self.d as u8) << 3;
@@ -1056,32 +1054,30 @@ impl Cpu {
             0xFD => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteX),
             0xFE => self.inc(ctx, AddressingMode::AbsoluteX),
             0xFF => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteLongX),
-
-            _ => unimplemented!(),
         }
-        debug!("Count: {}, now: {}, PC: {:06x} opcode: {:02X}, frame:x:y: {}:{}:{} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
-        self.instruction_count,
-        ctx.now(),
-        debug_pc,
-        opcode,
-        ctx.counter().frame,
-        ctx.counter().x,
-        ctx.counter().y,
-        self.a,
-        self.x,
-        self.y,
-        self.s,
-        self.d,
-        self.db,
-        if self.p.n { 'N' } else { 'n' },
-        if self.p.v { 'V' } else { 'v' },
-        if self.p.m { 'M' } else { 'm' },
-        if self.p.x { 'X' } else { 'x' },
-        if self.p.d { 'D' } else { 'd' },
-        if self.p.i { 'I' } else { 'i' },
-        if self.p.z { 'Z' } else { 'z' },
-        if self.p.c { 'C' } else { 'c' },
-        self.e);
+        // debug!("Count: {}, now: {}, PC: {:06x} opcode: {:02X}, frame:x:y: {}:{}:{} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
+        // self.instruction_count,
+        // ctx.now(),
+        // debug_pc,
+        // opcode,
+        // ctx.counter().frame,
+        // ctx.counter().x,
+        // ctx.counter().y,
+        // self.a,
+        // self.x,
+        // self.y,
+        // self.s,
+        // self.d,
+        // self.db,
+        // if self.p.n { 'N' } else { 'n' },
+        // if self.p.v { 'V' } else { 'v' },
+        // if self.p.m { 'M' } else { 'm' },
+        // if self.p.x { 'X' } else { 'x' },
+        // if self.p.d { 'D' } else { 'd' },
+        // if self.p.i { 'I' } else { 'i' },
+        // if self.p.z { 'Z' } else { 'z' },
+        // if self.p.c { 'C' } else { 'c' },
+        // self.e);
     }
 
     fn brk(&mut self, ctx: &mut impl Context) {
@@ -1503,7 +1499,6 @@ impl Cpu {
                 AluType::Add => self.alu_add_8(a, b),
                 AluType::Sub => self.alu_sub_8(a, b),
                 AluType::Cmp => self.cmp_8(a, b),
-                _ => unreachable!(),
             };
             if alu_type != AluType::Cmp {
                 // self.a = c as u16;
@@ -1535,21 +1530,19 @@ impl Cpu {
     }
 
     fn alu_add_8(&mut self, a: u8, b: u8) -> u8 {
-        let c = if self.p.d {
+        if self.p.d {
             self.dcd_add_8(a, b)
         } else {
             self.bin_add_8(a, b)
-        };
-        c
+        }
     }
 
     fn alu_add_16(&mut self, a: u16, b: u16) -> u16 {
-        let c = if self.p.d {
+        if self.p.d {
             self.dcd_add_16(a, b)
         } else {
             self.bin_add_16(a, b)
-        };
-        c
+        }
     }
 
     fn dcd_add_8(&mut self, a: u8, b: u8) -> u8 {
@@ -1679,7 +1672,7 @@ impl Cpu {
     fn bin_sub_8(&mut self, a: u8, b: u8) -> u8 {
         let a = a as u32;
         let b = b as u32;
-        let mut borrow = !self.p.c as u32;
+        let borrow = !self.p.c as u32;
         let c = a.wrapping_sub(b).wrapping_sub(borrow);
         self.p.c = c < 0x100;
         let v = (a ^ b) & (a ^ c) & 0x80 != 0;
@@ -1729,7 +1722,7 @@ impl Cpu {
     fn bin_sub_16(&mut self, a: u16, b: u16) -> u16 {
         let a = a as u32;
         let b = b as u32;
-        let mut borrow = !self.p.c as u32;
+        let borrow = !self.p.c as u32;
         let c = a.wrapping_sub(b).wrapping_sub(borrow);
         self.p.c = c < 0x10000;
         let v = (a ^ b) & (a ^ c) & 0x8000 != 0;

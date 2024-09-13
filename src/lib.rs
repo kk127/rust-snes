@@ -1,5 +1,4 @@
-use context::{Bus, Cpu, Ppu, Timing};
-use log::debug;
+use context::{Bus, Cpu, Ppu, Spc};
 
 mod bus;
 mod cartridge;
@@ -8,6 +7,7 @@ mod counter;
 mod cpu;
 mod interrupt;
 mod ppu;
+mod spc;
 
 pub struct Snes {
     pub context: context::Context,
@@ -31,6 +31,7 @@ impl Snes {
         while frame == self.context.inner1.inner2.ppu.frame_number {
             self.context.exce_one();
             self.context.inner1.inner2.ppu_tick();
+            self.context.inner1.inner2.spc_tick();
             self.context.inner1.bus_tick();
         }
     }

@@ -1,4 +1,4 @@
-use crate::{context, counter};
+use crate::context;
 use modular_bitfield::prelude::*;
 
 use log::{debug, warn};
@@ -202,7 +202,7 @@ impl Default for Ppu {
 }
 
 impl Ppu {
-    pub fn read(&mut self, addr: u16, ctx: &mut impl Context) -> u8 {
+    pub(crate) fn read(&mut self, addr: u16, ctx: &mut impl Context) -> u8 {
         match addr {
             0x2134 => self.mpy as u8,
             0x2135 => (self.mpy >> 8) as u8,
@@ -494,21 +494,10 @@ impl Ppu {
                     debug!("frame_number: {}", self.frame_number);
                     debug!("cgaram: {:?}", self.cgram);
                     debug!("vram: {:?}", self.vram);
-                    // 0xf800..0xf800 + 32 * 32
-                    for i in 0..32 {
-                        for j in 0..32 {
-                            let addr = 0xf800 + i * 32 + j * 2;
-                            debug!(
-                                "vram[0x{:x}]: 0x{:x}",
-                                addr,
-                                (self.vram[addr as usize + 1] as u16) << 8
-                                    | self.vram[addr as usize] as u16
-                            );
-                        }
-                    }
                 }
 
                 if self.y == 225 {
+                    debug!("VBlank start");
                     self.is_vblank = true;
                 }
             }
@@ -524,6 +513,13 @@ impl Ppu {
             if (self.x, self.y) == (6, 0) {
                 self.is_hdma_reload = true;
             }
+
+            if self.x == 10 && self.y == 225 {
+                if !self.display_control.force_blank() {
+                    self.oam_addr = self.oam_addr_and_priority_rotation.addr() << 1;
+                }
+            }
+
             if self.x == 134 {
                 // DRAM refresh
                 ctx.elapse(40);
@@ -706,19 +702,12 @@ impl Ppu {
 
                     let mut tile_base_addr = self.object_size_and_base.base_addr_for_obj_tiles() as usize * 16 * 1024;
                     if oam_entry.attribute().tile_page() == 1 {
-                        debug!("gap_between_obj: {}", self.object_size_and_base.gap_between_obj() as usize * 0x2000);
                         tile_base_addr += self.object_size_and_base.gap_between_obj() as usize * 8 * 1024;
                     }
                     tile_base_addr &= 0xFFFF;
 
 
                     let tile_addr = tile_base_addr + tile_index * 32;
-                    if pixel_x == 73 && pixel_y == 0 {
-                        debug!("oam_entry: {:?}", oam_entry);
-                        debug!("gap_between_obj: {}", self.object_size_and_base.gap_between_obj());
-                        debug!("tile base addr: 0x{:x}", tile_base_addr);
-                        debug!("tile index: 0x{:x}", tile_index);
-                    }
                     let mut color_index = 0;
                     for i in 0..2 {
                         let bit_addr = (tile_addr + i * 16 + tile_y * 2) & 0xFFFE;
@@ -1039,7 +1028,7 @@ struct OamEntry {
 }
 
 #[bitfield(bits = 8)]
-#[derive(BitfieldSpecifier, Debug)]
+#[derive(BitfieldSpecifier, Debug, Default)]
 struct Attribute {
     tile_page: B1,
     palette_number: B3,

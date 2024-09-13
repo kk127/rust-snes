@@ -3,8 +3,15 @@ use modular_bitfield::bitfield;
 use modular_bitfield::prelude::*;
 
 use crate::context;
-trait Context: context::Ppu + context::Timing + context::Cartridge + context::Interrupt {}
-impl<T: context::Ppu + context::Timing + context::Cartridge + context::Interrupt> Context for T {}
+trait Context:
+    context::Ppu + context::Timing + context::Cartridge + context::Interrupt + context::Spc
+{
+}
+impl<
+        T: context::Ppu + context::Timing + context::Cartridge + context::Interrupt + context::Spc,
+    > Context for T
+{
+}
 
 const CYCLE_FAST: u64 = 6;
 const CYCLE_SLOW: u64 = 8;
@@ -82,7 +89,15 @@ impl Bus {
                     }
                     ctx.ppu_read(addr as u16)
                 }
-
+                0x2140..=0x217F => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    let port = addr as u16 & 3;
+                    let ret = ctx.spc_read(port);
+                    debug!("SPC {} -> {:02X} @ {}", addr & 3, ret, ctx.now());
+                    ret
+                }
                 0x2180 => {
                     if !self.is_dma_active {
                         ctx.elapse(CYCLE_FAST);
@@ -99,6 +114,13 @@ impl Bus {
                     let nmi_flag = ctx.get_nmi_flag();
                     let cpu_version = 2;
                     (nmi_flag as u8) << 7 | cpu_version | self.open_bus
+                }
+
+                0x4211 => {
+                    // TODO open bus
+                    let ret = (ctx.irq_occurred() as u8) << 7;
+                    ctx.set_irq(false);
+                    ret
                 }
 
                 0x4212 => {
@@ -239,6 +261,14 @@ impl Bus {
                             ctx.elapse(CYCLE_FAST);
                         }
                         ctx.ppu_write(addr as u16, data);
+                    }
+                    0x2140..=0x217F => {
+                        if !self.is_dma_active {
+                            ctx.elapse(CYCLE_FAST);
+                        }
+                        debug!("SPC {} <- {:02X} @ {}", addr & 3, data, ctx.now());
+                        let port = addr as u16 & 3;
+                        ctx.spc_write(port, data);
                     }
                     0x2180 => {
                         if !self.is_dma_active {

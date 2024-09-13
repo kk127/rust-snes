@@ -24,7 +24,9 @@ impl Cartridge {
                     0x7E..=0x7F => unreachable!(),
                     0x80..=0xFF => match offset {
                         0x0000..=0x7FFF => match bank {
-                            0x80..=0xBF => unreachable!(),
+                            0x80..=0xBF => {
+                                unreachable!("Invalid bank: {:02X}, offset: {:04X}", bank, offset);
+                            }
                             0xC0..=0xEF => self.read(addr + 0x8000),
                             0xF0..=0xFF => {
                                 let sram_offset = (bank - 0xF0) * 1024 * 32 + offset;
@@ -205,9 +207,9 @@ fn parse_header(bytes: &[u8], base: usize) -> Result<Header, String> {
         u16::from_le_bytes(bytes[base + 0xDC..base + 0xDC + 2].try_into().unwrap());
     let checksum = u16::from_le_bytes(bytes[base + 0xDE..base + 0xDE + 2].try_into().unwrap());
     // TODO: Commnet out for CPUADC test
-    // if checksum_complement != !checksum {
-    //     return Err("Checksum error".to_string());
-    // }
+    if checksum_complement != !checksum {
+        return Err("Checksum error".to_string());
+    }
 
     let title = match std::str::from_utf8(&bytes[base + 0xC0..base + 0xC0 + 21]) {
         Ok(title) => title.trim().to_string(),
@@ -296,7 +298,7 @@ impl From<u8> for MapMode {
             3 => MapMode::SA1,
             4 => MapMode::ExHiRom,
             5 => MapMode::Spc7110,
-            _ => unreachable!(),
+            _ => unreachable!("Unknown map mode: {}", val),
         }
     }
 }
