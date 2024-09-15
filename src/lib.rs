@@ -1,8 +1,10 @@
 use context::{Bus, Cpu, Ppu, Spc};
+pub use controller::Key;
 
 mod bus;
 mod cartridge;
 mod context;
+mod controller;
 mod counter;
 mod cpu;
 mod interrupt;
@@ -24,6 +26,10 @@ impl Snes {
         loop {
             self.context.exce_one();
         }
+    }
+
+    pub fn set_keys(&mut self, keys: [Vec<Key>; 4]) {
+        self.context.inner1.set_keys(keys);
     }
 
     pub fn exec_frame(&mut self) {

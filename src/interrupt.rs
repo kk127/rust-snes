@@ -80,8 +80,4 @@ impl Interrupt {
     pub fn get_v_count(&self) -> u16 {
         self.v_count
     }
-
-    pub fn set_joypad_enable(&mut self, flag: bool) {
-        self.joypad_enable = flag;
-    }
 }

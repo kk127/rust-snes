@@ -1,9 +1,8 @@
 use log;
-use rust_snes::Snes;
+use rust_snes::{Key, Snes};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use sdl2::rect::Rect;
 use std::time::Duration;
 
 fn main() -> Result<(), String> {
@@ -25,27 +24,87 @@ fn main() -> Result<(), String> {
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().build().unwrap();
+    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
 
     // 論理的な描画サイズを256x224に設定
     canvas.set_logical_size(256, 224).unwrap();
 
+    // GameControllerのサブシステムを取得
+    let game_controller_subsystem = sdl2_context.game_controller()?;
+
+    // 接続されているコントローラーを探す
+    let available = game_controller_subsystem
+        .num_joysticks()
+        .map_err(|e| e.to_string())?;
+    let mut controller = None;
+
+    for id in 0..available {
+        if game_controller_subsystem.is_game_controller(id) {
+            controller = Some(game_controller_subsystem.open(id).unwrap());
+            println!(
+                "Controller detected: {}",
+                controller.as_ref().unwrap().name()
+            );
+            break;
+        }
+    }
+
+    // コントローラーが見つからなければエラー
+    let controller = match controller {
+        Some(c) => c,
+        None => {
+            println!("No game controller found!");
+            return Ok(());
+        }
+    };
+
     let mut event_pump = sdl2_context.event_pump()?;
 
+    let mut keys = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     'running: loop {
         let start_time = std::time::Instant::now();
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => {
-                    break 'running; // ループを終了してプログラムを終了
-                }
+                // 押されたkeyに対応するkeyを取得し、keysに追加
+                Event::Quit { .. } => break 'running,
+                // コントローラのボタンが押されたとき
+                Event::ControllerButtonDown { button, .. } => match button {
+                    sdl2::controller::Button::Y => keys[0].push(Key::X),
+                    sdl2::controller::Button::B => keys[0].push(Key::A),
+                    sdl2::controller::Button::A => keys[0].push(Key::B),
+                    sdl2::controller::Button::X => keys[0].push(Key::Y),
+                    sdl2::controller::Button::Start => keys[0].push(Key::Start),
+                    sdl2::controller::Button::Back => keys[0].push(Key::Select),
+                    sdl2::controller::Button::DPadUp => keys[0].push(Key::Up),
+                    sdl2::controller::Button::DPadDown => keys[0].push(Key::Down),
+                    sdl2::controller::Button::DPadLeft => keys[0].push(Key::Left),
+                    sdl2::controller::Button::DPadRight => keys[0].push(Key::Right),
+                    sdl2::controller::Button::LeftShoulder => keys[0].push(Key::L),
+                    sdl2::controller::Button::RightShoulder => keys[0].push(Key::R),
+                    _ => {}
+                },
+                Event::ControllerButtonUp { button, .. } => match button {
+                    sdl2::controller::Button::Y => keys[0].retain(|&k| k != Key::X),
+                    sdl2::controller::Button::B => keys[0].retain(|&k| k != Key::A),
+                    sdl2::controller::Button::A => keys[0].retain(|&k| k != Key::B),
+                    sdl2::controller::Button::X => keys[0].retain(|&k| k != Key::Y),
+                    sdl2::controller::Button::Start => keys[0].retain(|&k| k != Key::Start),
+                    sdl2::controller::Button::Back => keys[0].retain(|&k| k != Key::Select),
+                    sdl2::controller::Button::DPadUp => keys[0].retain(|&k| k != Key::Up),
+                    sdl2::controller::Button::DPadDown => keys[0].retain(|&k| k != Key::Down),
+                    sdl2::controller::Button::DPadLeft => keys[0].retain(|&k| k != Key::Left),
+                    sdl2::controller::Button::DPadRight => keys[0].retain(|&k| k != Key::Right),
+                    sdl2::controller::Button::LeftShoulder => keys[0].retain(|&k| k != Key::L),
+                    sdl2::controller::Button::RightShoulder => keys[0].retain(|&k| k != Key::R),
+                    _ => {}
+                },
                 _ => {}
             }
         }
+        // if !keys[0].is_empty() {
+        //     println!("{:?}", keys);
+        // }
+        snes.set_keys(keys.clone());
 
         // 背景を黒でクリア
         canvas.set_draw_color(Color::RGB(0, 0, 0));

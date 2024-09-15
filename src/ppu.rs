@@ -97,6 +97,8 @@ pub struct Ppu {
     v_flipflopped: bool,
     obj_time_overflow: bool,
     obj_range_overflow: bool,
+
+    auto_joypad_read: bool,
 }
 
 #[bitfield(bits = 8)]
@@ -197,6 +199,8 @@ impl Default for Ppu {
             v_flipflopped: false,
             obj_range_overflow: false,
             obj_time_overflow: false,
+
+            auto_joypad_read: false,
         }
     }
 }
@@ -520,6 +524,10 @@ impl Ppu {
                 }
             }
 
+            if (self.x, self.y) == (33, 225) {
+                self.auto_joypad_read = true;
+            }
+
             if self.x == 134 {
                 // DRAM refresh
                 ctx.elapse(40);
@@ -769,7 +777,34 @@ impl Ppu {
                 sub_color.b = ((sub_color.b as u16 * (bright_ness + 1) as u16) / 16) as u8;
             }
             // let color = self.color_math_ctrl.calc_color(main_color, sub_color);
-            self.frame[y as usize * FRAME_WIDTH + i] = (main_color.b as u16) << 10 | (main_color.g as u16) << 5 | main_color.r as u16;
+
+            if (self.color_math_ctrl.kind() >> (main_color.layer as u8)) & 1 == 1 {
+                let mut color_r = 0;
+                let mut color_g = 0;
+                let mut color_b = 0;
+                // main_color = self.color_math_ctrl.calc_color(main_color, sub_color);
+                if self.color_math_ctrl.subtract() {
+                    color_r = main_color.r.saturating_sub(sub_color.r);
+                    color_g = main_color.g.saturating_sub(sub_color.g);
+                    color_b = main_color.b.saturating_sub(sub_color.b);
+                } else {
+                    color_r = main_color.r + sub_color.r;
+                    color_g = main_color.g + sub_color.g;
+                    color_b = main_color.b + sub_color.b;
+                }
+                if self.color_math_ctrl.half_color() {
+                    color_r >>= 1;
+                    color_g >>= 1;
+                    color_b >>= 1;
+                }
+                color_r = color_r.min(31);
+                color_g = color_g.min(31);
+                color_b = color_b.min(31);
+                self.frame[y as usize * FRAME_WIDTH + i] = (color_b as u16) << 10 | (color_g as u16) << 5 | color_r as u16;
+            } else {
+                self.frame[y as usize * FRAME_WIDTH + i] = (main_color.b as u16) << 10 | (main_color.g as u16) << 5 | main_color.r as u16;
+            }
+
         }
     }
 
@@ -857,6 +892,12 @@ impl Ppu {
             _ => unreachable!(),
         }    
     }
+
+    pub fn is_auto_joypad_read(&mut self) -> bool {
+        let ret = self.auto_joypad_read;
+        self.auto_joypad_read = false;
+        ret
+    }
 }
 
 impl Ppu {
@@ -901,14 +942,14 @@ impl PixelInfo {
 
 #[derive(Default, Clone, Copy)]
 enum Layer {
-    Bg1,
-    Bg2,
-    Bg3,
-    Bg4,
-    ObjPallete0_3,
-    ObjPallete4_7,
+    Bg1 = 0,
+    Bg2 = 1,
+    Bg3 = 2,
+    Bg4 = 3,
+    ObjPallete0_3 = 7, // (Always=Off)
+    ObjPallete4_7 = 4,
     #[default]
-    Backdrop,
+    Backdrop = 5,
 }
 
 impl Layer {

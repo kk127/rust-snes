@@ -2,7 +2,8 @@ use log::{debug, info, warn};
 use modular_bitfield::bitfield;
 use modular_bitfield::prelude::*;
 
-use crate::context;
+use crate::controller::Key;
+use crate::{context, controller};
 trait Context:
     context::Ppu + context::Timing + context::Cartridge + context::Interrupt + context::Spc
 {
@@ -27,7 +28,9 @@ pub struct Bus {
     hdma_enable: u8,     // 0x420C
     is_dma_active: bool, // flag for read/write bus in dma (for clock)
 
-    joypad_programmable_io: u8, // 0x4201
+    joypad_enable: bool, // 0x4200
+    auto_joypad_read_busy: u64,
+    controller: [controller::Controller; 2],
 
     multiplicand: u8,                  // 0x4202
     multiplier: u8,                    // 0x4203
@@ -54,7 +57,9 @@ impl Default for Bus {
             hdma_enable: 0,
             is_dma_active: false,
 
-            joypad_programmable_io: 0,
+            controller: Default::default(),
+            joypad_enable: false,
+            auto_joypad_read_busy: 0,
 
             multiplicand: 0xFF,
             multiplier: 0xFF,
@@ -72,6 +77,29 @@ impl Default for Bus {
 }
 
 impl Bus {
+    pub fn set_keys(&mut self, keys: [Vec<Key>; 4]) {
+        for i in 0..4 {
+            let mut data = 0;
+            for key in keys[i].iter() {
+                match key {
+                    Key::B => data |= 1 << 15,
+                    Key::Y => data |= 1 << 14,
+                    Key::Select => data |= 1 << 13,
+                    Key::Start => data |= 1 << 12,
+                    Key::Up => data |= 1 << 11,
+                    Key::Down => data |= 1 << 10,
+                    Key::Left => data |= 1 << 9,
+                    Key::Right => data |= 1 << 8,
+                    Key::A => data |= 1 << 7,
+                    Key::X => data |= 1 << 6,
+                    Key::L => data |= 1 << 5,
+                    Key::R => data |= 1 << 4,
+                }
+            }
+            self.controller[i % 2].data[i / 2] = data;
+        }
+    }
+
     pub fn read(&mut self, addr: u32, ctx: &mut impl Context) -> u8 {
         let bank = addr >> 16;
         let offset = addr as u16;
@@ -107,6 +135,22 @@ impl Bus {
                     data
                 }
 
+                0x4016 | 0x4017 => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_JOYPAD);
+                    }
+                    let index = (offset - 0x4016) as usize;
+                    // let b0 = self.controller[index as usize].controller_read(4);
+                    // let b1 = self.controller[index as usize].controller_read(5);
+                    // self.controller[index as usize].controller_write(2, true);
+                    // self.controller[index as usize].controller_write(2, false);
+                    // TODO open bus
+                    // let data = b0 as u8 | (b1 as u8) << 1;
+
+                    let data = self.controller[index].read();
+                    data
+                }
+
                 0x4210 => {
                     if !self.is_dma_active {
                         ctx.elapse(CYCLE_FAST);
@@ -128,10 +172,19 @@ impl Bus {
                         ctx.elapse(CYCLE_FAST);
                     }
                     let mut ret = 0;
-                    // TODO joypad busy
+                    ret |= (ctx.now() < self.auto_joypad_read_busy) as u8;
                     ret |= (ctx.is_hblank() as u8) << 6;
                     ret |= (ctx.is_vblank() as u8) << 7;
                     ret
+                }
+                0x4213 => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    // let b6 = self.controller[0].controller_read(6) as u8;
+                    // let b7 = self.controller[1].controller_read(6) as u8;
+                    // b6 << 6 | b7 << 7
+                    0b1100_0000
                 }
 
                 0x4214 => {
@@ -157,6 +210,14 @@ impl Bus {
                         ctx.elapse(CYCLE_FAST);
                     }
                     (self.div_remainder_or_mul_product >> 8) as u8
+                }
+                0x4218..=0x421F => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    let index = (offset as usize - 0x4218) / 2;
+                    let pos = (offset as usize - 0x4218) % 2;
+                    (self.controller[index % 2].data[index / 2] >> (8 * pos)) as u8
                 }
 
                 0x4300..=0x437F => {
@@ -295,9 +356,13 @@ impl Bus {
                         }
                         self.wram_addr = (self.wram_addr & 0x0FFFF) | ((data as u32 & 1) << 16);
                     }
-                    0x4016 | 0x4017 => {
-                        debug!("write to joypad register: 0x{:x} = 0x{:x}", addr, data);
-                        debug!("Unimplemented");
+                    0x4016 => {
+                        // self.controller[0].controller_write(3, data & 1 != 0);
+                        // self.controller[1].controller_write(3, data & 1 != 0);
+                        if data & 1 == 1 {
+                            self.controller[0].initialize();
+                            self.controller[1].initialize();
+                        }
                     }
                     0x4200 => {
                         if !self.is_dma_active {
@@ -307,17 +372,16 @@ impl Bus {
                         let hv_irq_enable = (data >> 4) & 3;
                         let nmi_enable = (data >> 7) & 1 == 1;
 
-                        ctx.set_joypad_enable(joypad_enable);
+                        self.joypad_enable = joypad_enable;
                         ctx.set_hv_irq_enable(hv_irq_enable);
                         ctx.set_nmi_enable(nmi_enable);
                         debug!("NMITIMEN = joypad_enable: {}, hv_irq_enable: {}, v_blank_nmi_enable: {}", joypad_enable, hv_irq_enable, nmi_enable);
                     }
 
                     0x4201 => {
-                        if !self.is_dma_active {
-                            ctx.elapse(CYCLE_FAST);
-                        }
-                        self.joypad_programmable_io = data;
+                        debug!("Unimplemented: 0x{:x} = 0x{:x}", addr, data);
+                        // self.controller[0].controller_write(6, data & (1 << 6) != 0);
+                        // self.controller[1].controller_write(6, data & (1 << 7) != 0);
                     }
 
                     0x4202 => {
@@ -736,7 +800,23 @@ impl Bus {
         );
     }
 
+    fn auto_joypad_read(&mut self) {
+        for port in 0..2 {
+            // self.controller[port].controller_write(3, true);
+            self.controller[port].initialize();
+            for _ in 0..16 {
+                // self.controller[port].controller_write(2, true);
+                // self.controller[port].controller_write(2, false);
+                self.controller[port].read();
+            }
+        }
+    }
+
     pub fn tick(&mut self, ctx: &mut impl Context) {
+        if ctx.is_auto_joypad_read() && self.joypad_enable {
+            self.auto_joypad_read_busy = ctx.now() + 4224;
+            self.auto_joypad_read();
+        }
         self.hdma_reload_and_exec(ctx);
         self.gdma_exec(ctx);
     }

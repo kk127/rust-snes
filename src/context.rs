@@ -1,3 +1,4 @@
+use crate::controller::Key;
 use crate::{bus, cartridge, counter, cpu, interrupt, ppu, spc};
 use log::debug;
 
@@ -83,6 +84,10 @@ impl Bus for Inner1 {
         self.bus.write(addr, data, &mut self.inner2)
     }
 
+    fn set_keys(&mut self, keys: [Vec<Key>; 4]) {
+        self.bus.set_keys(keys)
+    }
+
     fn bus_tick(&mut self) {
         self.bus.tick(&mut self.inner2);
     }
@@ -154,10 +159,6 @@ impl Interrupt for Inner1 {
     fn irq_occurred(&self) -> bool {
         self.inner2.irq_occurred()
     }
-
-    fn set_joypad_enable(&mut self, flag: bool) {
-        self.inner2.set_joypad_enable(flag)
-    }
 }
 
 impl Ppu for Inner2 {
@@ -186,6 +187,10 @@ impl Ppu for Inner2 {
     }
     fn is_hdma_transfer_triggered(&mut self) -> bool {
         self.ppu.is_hdma_transfer_triggered()
+    }
+
+    fn is_auto_joypad_read(&mut self) -> bool {
+        self.ppu.is_auto_joypad_read()
     }
 }
 
@@ -278,10 +283,6 @@ impl Interrupt for Inner2 {
     fn irq_occurred(&self) -> bool {
         self.inner.interrupt.irq_occurred()
     }
-
-    fn set_joypad_enable(&mut self, flag: bool) {
-        self.inner.interrupt.set_joypad_enable(flag)
-    }
 }
 
 impl Timing for Inner3 {
@@ -349,10 +350,6 @@ impl Interrupt for Inner3 {
     fn irq_occurred(&self) -> bool {
         self.interrupt.irq_occurred()
     }
-
-    fn set_joypad_enable(&mut self, flag: bool) {
-        self.interrupt.set_joypad_enable(flag)
-    }
 }
 
 // impl Bus for Context {
@@ -401,6 +398,7 @@ pub trait Bus {
     fn bus_write(&mut self, addr: u32, data: u8);
 
     fn bus_tick(&mut self);
+    fn set_keys(&mut self, keys: [Vec<Key>; 4]);
 }
 
 pub trait Ppu {
@@ -413,6 +411,7 @@ pub trait Ppu {
     fn is_vblank(&self) -> bool;
     fn is_hdma_reload_triggered(&mut self) -> bool;
     fn is_hdma_transfer_triggered(&mut self) -> bool;
+    fn is_auto_joypad_read(&mut self) -> bool;
 }
 
 pub trait Timing {
@@ -441,7 +440,6 @@ pub trait Interrupt {
     fn get_v_count(&self) -> u16;
     fn set_irq(&mut self, flag: bool);
     fn irq_occurred(&self) -> bool;
-    fn set_joypad_enable(&mut self, flag: bool);
 }
 
 pub trait Spc {
