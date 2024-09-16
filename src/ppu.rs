@@ -590,38 +590,16 @@ impl Ppu {
             self.sub_screen[i] = PixelInfo::new(self.color_math_sub_screen_backdrop_color.get_bgr(), 13, Layer::Backdrop);
         }
         for (bg_index, &bpp) in bpp_mode.iter().enumerate() {
-            let (tile_w_num, tile_h_num) = self.bg_screen_base_and_size[bg_index].get_tile_num();
             let tile_size = self.bg_ctrl.get_tile_size(bg_index);
             let tile_base_addr = self.bg_tile_base_addr[bg_index] as usize * 8 * 1024;
             debug!("tile base addr: 0x{:x}", tile_base_addr);
-            let screen_width = tile_w_num * tile_size;
-            let screen_height = tile_h_num * tile_size;
 
 
             for x in 0..FRAME_WIDTH {
-                let screen_x = (x + self.bg_hofs[bg_index] as usize) % screen_width;
-                let screen_y = (y as usize + self.bg_vofs[bg_index] as usize) % screen_height;
+                let screen_x = x + self.bg_hofs[bg_index] as usize;
+                let screen_y = y as usize + self.bg_vofs[bg_index] as usize;
 
-                let mut bg_map_base_addr = self.bg_screen_base_and_size[bg_index].get_bg_map_base_addr();
-                if x == 0 {
-                    debug!("bg_map_base_addr: 0x{:x}", bg_map_base_addr);
-                }
-                let mut tile_x_index = screen_x / tile_size;
-                let mut tile_y_index = screen_y / tile_size;
-                if tile_x_index >= 32 {
-                    tile_x_index %= 32;
-                    bg_map_base_addr += 2 * 1024;
-                }
-                if tile_y_index >= 32 {
-                    tile_y_index %= 32;
-                    bg_map_base_addr += 2 * 2 * 1024;
-                }
-
-                let map_entry_addr = (bg_map_base_addr + 2 * (tile_y_index * 32 + tile_x_index)) & 0xFFFE;
-                let map_entry = BGMapEntry::from_bytes([
-                    self.vram[map_entry_addr],
-                    self.vram[map_entry_addr + 1],
-                ]);
+                let map_entry = self.get_map_entry(bg_index, screen_x, screen_y, tile_size);
 
                 let mut tile_index = map_entry.character_number() as usize;
                 let mut pixel_x = (screen_x % tile_size) ^ if map_entry.flip_x() { tile_size -1 } else { 0 };
@@ -670,6 +648,24 @@ impl Ppu {
                 }
             }
         }
+    }
+
+    fn get_map_entry(&self, bg_index: usize, x: usize, y: usize, tile_size: usize) -> BGMapEntry {
+        let (screen_w, screen_h) = self.bg_screen_base_and_size[bg_index].get_screen_size();
+        let base_addr = self.bg_screen_base_and_size[bg_index].get_bg_map_base_addr();
+
+        let sc_x = x / tile_size / 32 % screen_w;
+        let sc_y = y / tile_size / 32 % screen_h;
+        let tile_x = x / tile_size % 32;
+        let tile_y = y / tile_size % 32;
+
+        let screen_addr = base_addr + (sc_x + sc_y * screen_w) * 2 * 1024;
+        let map_entry_addr = (screen_addr + (tile_x + tile_y * 32) * 2) & 0xFFFE;
+
+        BGMapEntry::from_bytes([
+            self.vram[map_entry_addr],
+            self.vram[map_entry_addr + 1],
+        ])
     }
 
     fn render_obj(&mut self, y: u16) {
@@ -1041,12 +1037,12 @@ struct BGScreenBaseSize {
 }
 
 impl BGScreenBaseSize {
-    fn get_tile_num(&self) -> (usize, usize) {
+    fn get_screen_size(&self) -> (usize, usize) {
         match self.screen_size() {
-            0 => (32, 32),
-            1 => (64, 32),
-            2 => (32, 64),
-            3 => (64, 64),
+            0 => (1, 1),
+            1 => (2, 1),
+            2 => (1, 2),
+            3 => (2, 2),
             _ => unreachable!(),
         }
     }
