@@ -452,7 +452,8 @@ impl Cpu {
             //     }
             // }
             AddressingMode::Absolute => {
-                let addr = (self.pb as u32) << 16 | self.fetch_16(ctx) as u32;
+                // let addr = (self.pb as u32) << 16 | self.fetch_16(ctx) as u32;
+                let addr = (self.db as u32) << 16 | self.fetch_16(ctx) as u32;
                 WarpAddress {
                     addr,
                     mode: WarpMode::NoWarp,
@@ -1055,29 +1056,29 @@ impl Cpu {
             0xFE => self.inc(ctx, AddressingMode::AbsoluteX),
             0xFF => self.alu(ctx, AluType::Sub, AddressingMode::AbsoluteLongX),
         }
-        // debug!("Count: {}, now: {}, PC: {:06x} opcode: {:02X}, frame:x:y: {}:{}:{} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
-        // self.instruction_count,
-        // ctx.now(),
-        // debug_pc,
-        // opcode,
-        // ctx.counter().frame,
-        // ctx.counter().x,
-        // ctx.counter().y,
-        // self.a,
-        // self.x,
-        // self.y,
-        // self.s,
-        // self.d,
-        // self.db,
-        // if self.p.n { 'N' } else { 'n' },
-        // if self.p.v { 'V' } else { 'v' },
-        // if self.p.m { 'M' } else { 'm' },
-        // if self.p.x { 'X' } else { 'x' },
-        // if self.p.d { 'D' } else { 'd' },
-        // if self.p.i { 'I' } else { 'i' },
-        // if self.p.z { 'Z' } else { 'z' },
-        // if self.p.c { 'C' } else { 'c' },
-        // self.e);
+        debug!("Count: {}, now: {}, PC: {:06x} opcode: {:02X}, frame:x:y: {}:{}:{} A:{:04x} X:{:04x} Y:{:04x} S:{:04x} D:{:04x} DB:{:02x} {}{}{}{}{}{}{}{} E:{}",
+        self.instruction_count,
+        ctx.now(),
+        debug_pc,
+        opcode,
+        ctx.counter().frame,
+        ctx.counter().x,
+        ctx.counter().y,
+        self.a,
+        self.x,
+        self.y,
+        self.s,
+        self.d,
+        self.db,
+        if self.p.n { 'N' } else { 'n' },
+        if self.p.v { 'V' } else { 'v' },
+        if self.p.m { 'M' } else { 'm' },
+        if self.p.x { 'X' } else { 'x' },
+        if self.p.d { 'D' } else { 'd' },
+        if self.p.i { 'I' } else { 'i' },
+        if self.p.z { 'Z' } else { 'z' },
+        if self.p.c { 'C' } else { 'c' },
+        self.e);
     }
 
     fn brk(&mut self, ctx: &mut impl Context) {

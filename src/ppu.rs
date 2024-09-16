@@ -669,7 +669,13 @@ impl Ppu {
     }
 
     fn render_obj(&mut self, y: u16) {
+        let priority_rotation = if self.oam_addr_and_priority_rotation.priority_rotation() {
+            (self.oam_addr >> 2) & 0x7F
+        } else {
+            0
+        };
         for i in 0..128 {
+            let i = ((i + priority_rotation) & 0x7F) as usize;
             let oam_entry = OamEntry::from_bytes(self.oam[i * 4..i * 4 + 4].try_into().unwrap());
             let addition_addr = 0x200 + (i / 4) ;
             let addition_offset = i % 4;
@@ -700,6 +706,7 @@ impl Ppu {
                     tile_index = (tile_index & 0x1F0) | (((tile_index & 0x0F) + tile_x / 8 ) & 0x0F);
                     // y方向は0x10ずれる
                     tile_index = (((tile_index & 0x1F0) + tile_y / 8 * 0x10) & 0x1F0) | (tile_index & 0x0F);
+                    // tile_index = (tile_index & 0x10F) | (((tile_index & 0xF0) + tile_y / 8 * 0x10) & 0xF0);
 
                     tile_x %= 8;
                     tile_y %= 8;

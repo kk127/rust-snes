@@ -271,6 +271,10 @@ impl Bus {
             _ => unimplemented!(),
         };
         self.open_bus = data;
+        debug!(
+            "Bus read  bank: {:X}, addr: 0x{:X}, data: 0x{:X} ",
+            bank, offset, data
+        );
         data
     }
 
@@ -307,6 +311,10 @@ impl Bus {
         let bank = addr >> 16;
         let offset = addr as u16;
         self.open_bus = data;
+        debug!(
+            "Bus write  bank: {:X}, addr: 0x{:X}, data: 0x{:X} ",
+            bank, offset, data
+        );
 
         match bank {
             0x00..=0x3F | 0x80..=0xBF => {

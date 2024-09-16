@@ -328,25 +328,25 @@ impl Spc {
             0xFE => self.dbnz_y(),
             0xFF => self.stop(),
         }
-        debug!(
-            "SPC: Councter: {}, PC:{:04X} op: {:02X} A:{:02X} X:{:02X} Y:{:02X} SP:{:02X} P:{}{}{}{}{}{}{}{} CYC:{}",
-            self.instruction_counter,
-            pc,
-            op,
-            self.registers.a,
-            self.registers.x,
-            self.registers.y,
-            self.registers.sp,
-            if self.registers.psw.n() { 'N' } else { 'n' },
-            if self.registers.psw.v() { 'V' } else { 'v' },
-            if self.registers.psw.p() { 'P' } else { 'p' },
-            if self.registers.psw.b() { 'B' } else { 'b' },
-            if self.registers.psw.h() { 'H' } else { 'h' },
-            if self.registers.psw.i() { 'I' } else { 'i' },
-            if self.registers.psw.z() { 'Z' } else { 'z' },
-            if self.registers.psw.c() { 'C' } else { 'c' },
-            self.counter,
-        );
+        // debug!(
+        //     "SPC: Councter: {}, PC:{:04X} op: {:02X} A:{:02X} X:{:02X} Y:{:02X} SP:{:02X} P:{}{}{}{}{}{}{}{} CYC:{}",
+        //     self.instruction_counter,
+        //     pc,
+        //     op,
+        //     self.registers.a,
+        //     self.registers.x,
+        //     self.registers.y,
+        //     self.registers.sp,
+        //     if self.registers.psw.n() { 'N' } else { 'n' },
+        //     if self.registers.psw.v() { 'V' } else { 'v' },
+        //     if self.registers.psw.p() { 'P' } else { 'p' },
+        //     if self.registers.psw.b() { 'B' } else { 'b' },
+        //     if self.registers.psw.h() { 'H' } else { 'h' },
+        //     if self.registers.psw.i() { 'I' } else { 'i' },
+        //     if self.registers.psw.z() { 'Z' } else { 'z' },
+        //     if self.registers.psw.c() { 'C' } else { 'c' },
+        //     self.counter,
+        // );
         self.instruction_counter += 1;
     }
 
@@ -371,13 +371,13 @@ impl Spc {
                 }
             }
         };
-        debug!("SPC Read:  {addr:#06X} = {data:#04X}");
+        // debug!("SPC Read:  {addr:#06X} = {data:#04X}");
         data
     }
 
     fn write_8(&mut self, addr: WrapAddr, data: u8) {
         let addr = addr.addr;
-        debug!("SPC Write: {addr:#06X} = {data:#04X}");
+        // debug!("SPC Write: {addr:#06X} = {data:#04X}");
         match addr {
             0x0000..=0x00EF | 0x0100..=0xFFFF => {
                 self.counter += self.io_registers.waitstate_on_ram_access;
@@ -1631,7 +1631,7 @@ impl IORegisters {
             4..=7 => {
                 let port = index - 4;
                 let data = self.cpu_in[port as usize];
-                debug!("CPUIO {port} -> {data:#04X} ");
+                // debug!("CPUIO {port} -> {data:#04X} ");
                 data
             }
             8 | 9 => self.external_io_port[(index - 8) as usize],
@@ -1672,7 +1672,7 @@ impl IORegisters {
             3 => self.dsp.write(self.dsp_addr, data),
             4..=7 => {
                 let port = index - 4;
-                debug!("CPUIO {port} <- {data:#04X}");
+                // debug!("CPUIO {port} <- {data:#04X}");
                 self.cpu_out[(index - 4) as usize] = data;
             }
             8 | 9 => self.external_io_port[(index - 8) as usize] = data,
@@ -1682,7 +1682,7 @@ impl IORegisters {
             //     index, data
             // ),
             0xD..=0xF => {
-                debug!("Timer {} <- {data:#04X}", index - 0xD);
+                // debug!("Timer {} <- {data:#04X}", index - 0xD);
             }
             _ => unreachable!(
                 "IORegisters Invalid write index: {:#X}, data: {:X}",

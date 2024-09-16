@@ -101,7 +101,9 @@ impl Cartridge {
                     0x7E..=0x7F => unreachable!(),
                     0x80..=0xFF => match offset {
                         0x0000..=0x7FFF => match bank {
-                            0x80..=0xBF => unreachable!(),
+                            0x80..=0xBF => {
+                                // unreachable!("Invalid bank: {:02X}, offset: {:04X}", bank, offset)
+                            }
                             0xC0..=0xEF => self.write(addr + 0x8000, data),
                             0xF0..=0xFF => {
                                 let sram_offset = (bank - 0xF0) * 1024 * 32 + offset;
@@ -128,6 +130,9 @@ impl Cartridge {
                     0x00..=0x3F => match offset {
                         0x0000..=0x5FFF => unreachable!(),
                         0x6000..=0x7FFF => {
+                            // if self.sram.is_empty() {
+                            //     return;
+                            // }
                             let sram_offset = bank * 1024 * 8 + (offset - 0x6000);
                             let sram_index = sram_offset % self.sram.len();
                             self.sram[sram_index] = data;
