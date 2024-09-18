@@ -379,16 +379,18 @@ impl Cpu {
     fn exeption(&mut self, exeption: Exeption, ctx: &mut impl Context) {
         debug!("Exception: {:?}", exeption);
         self.halt = false;
+        let mut p = self.p;
         if self.e {
             let flag = matches!(exeption, Exeption::Brk | Exeption::Cop);
-            self.p.x = flag;
+            p.x = flag;
         }
         if !self.e {
             self.push_8(ctx, self.pb);
         }
         self.push_16(ctx, self.pc);
-        self.push_8(ctx, self.p.into());
+        self.push_8(ctx, p.into());
         self.p.i = true;
+        self.p.d = false;
         self.pb = 0;
         self.pc = WarpAddress {
             addr: self.get_interrupt_vector(exeption) as u32,
@@ -470,8 +472,8 @@ impl Cpu {
                 let offset = self.fetch_8(ctx) as u16;
                 if self.is_wrap8() {
                     WarpAddress {
-                        addr: (self.d & 0xFF00 | offset) as u32,
-                        mode: WarpMode::Warp8bit,
+                        addr: (self.d | offset) as u32,
+                        mode: WarpMode::Warp16bit,
                     }
                 } else {
                     if self.d & 0xFF != 0 {
@@ -490,7 +492,7 @@ impl Cpu {
                 let offset = self.fetch_8(ctx);
                 let direct_addr = if self.is_wrap8() {
                     WarpAddress {
-                        addr: (self.d & 0xFF00 | offset as u16) as u32,
+                        addr: self.d as u32 | offset as u32,
                         mode: WarpMode::Warp8bit,
                     }
                     .read_16(ctx)
@@ -515,7 +517,7 @@ impl Cpu {
                 let offset = self.fetch_8(ctx);
                 let direct_addr = if self.is_wrap8() {
                     WarpAddress {
-                        addr: (self.d & 0xFF00 | offset as u16) as u32,
+                        addr: self.d as u32 | offset as u32,
                         mode: WarpMode::Warp8bit,
                     }
                     .read_24(ctx)
@@ -570,9 +572,10 @@ impl Cpu {
                 }
                 if self.is_wrap8() {
                     WarpAddress {
-                        addr: (self.d & 0xFF00 | offset) as u32,
+                        addr: self.d as u32,
                         mode: WarpMode::Warp8bit,
                     }
+                    .offset(offset)
                     .offset(self.x)
                 } else {
                     WarpAddress {
@@ -590,9 +593,10 @@ impl Cpu {
                 }
                 if self.is_wrap8() {
                     WarpAddress {
-                        addr: (self.d & 0xFF00 | offset) as u32,
+                        addr: self.d as u32,
                         mode: WarpMode::Warp8bit,
                     }
+                    .offset(offset)
                     .offset(self.y)
                 } else {
                     WarpAddress {
@@ -636,15 +640,29 @@ impl Cpu {
                 if self.d & 0xFF != 0 {
                     ctx.elapse(CPU_CYCLE);
                 }
-                let addr = WarpAddress {
-                    addr: self.d as u32,
-                    mode: WarpMode::Warp16bit,
-                }
-                .offset(offset)
-                .read_16(ctx);
+                // let addr = WarpAddress {
+                //     addr: self.d as u32,
+                //     mode: WarpMode::Warp16bit,
+                // }
+                // .offset(offset)
+                // .read_16(ctx);
+                let mid_addr = if self.is_wrap8() {
+                    WarpAddress {
+                        addr: (self.d as u32 | offset as u32),
+                        mode: WarpMode::Warp8bit,
+                    }
+                    .read_16(ctx)
+                } else {
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset)
+                    .read_16(ctx)
+                };
 
                 WarpAddress {
-                    addr: (self.db as u32) << 16 | addr as u32,
+                    addr: (self.db as u32) << 16 | mid_addr as u32,
                     mode: WarpMode::NoWarp,
                 }
             }
@@ -653,12 +671,20 @@ impl Cpu {
                 if self.d & 0xFF != 0 {
                     ctx.elapse(CPU_CYCLE);
                 }
-                let addr = WarpAddress {
-                    addr: self.d as u32,
-                    mode: WarpMode::Warp16bit,
-                }
-                .offset(offset)
-                .read_24(ctx);
+                let addr = if self.is_wrap8() {
+                    WarpAddress {
+                        addr: self.d as u32 | offset as u32,
+                        mode: WarpMode::Warp8bit,
+                    }
+                    .read_24(ctx)
+                } else {
+                    WarpAddress {
+                        addr: self.d as u32,
+                        mode: WarpMode::Warp16bit,
+                    }
+                    .offset(offset)
+                    .read_24(ctx)
+                };
 
                 WarpAddress {
                     addr,
@@ -684,10 +710,9 @@ impl Cpu {
                 let offset = self.fetch_8(ctx) as u16;
                 ctx.elapse(CPU_CYCLE);
                 let addr = WarpAddress {
-                    addr: self.s as u32,
+                    addr: self.s.wrapping_add(offset) as u32,
                     mode: WarpMode::Warp16bit,
                 }
-                .offset(offset)
                 .read_16(ctx);
                 WarpAddress {
                     addr: (self.db as u32) << 16 | addr as u32,
@@ -2201,7 +2226,7 @@ impl Cpu {
     }
 
     fn jsr_aix(&mut self, ctx: &mut impl Context) {
-        let addr = self
+        let mut addr = self
             .get_warp_address(AddressingMode::AbsoluteIndexedIndirect, ctx)
             .read_16(ctx);
         ctx.elapse(CPU_CYCLE);

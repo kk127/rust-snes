@@ -16,9 +16,9 @@ pub struct Snes {
 }
 
 impl Snes {
-    pub fn new(rom: Vec<u8>) -> Snes {
+    pub fn new(rom: Vec<u8>, backup: Option<Vec<u8>>) -> Snes {
         Snes {
-            context: context::Context::new(rom),
+            context: context::Context::new(rom, backup),
         }
     }
 
@@ -40,5 +40,9 @@ impl Snes {
             self.context.inner1.inner2.spc_tick();
             self.context.inner1.bus_tick();
         }
+    }
+
+    pub fn backup(&self) -> Option<Vec<u8>> {
+        self.context.inner1.inner2.cartridge.backup()
     }
 }

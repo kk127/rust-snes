@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, warn};
 
 pub struct Cartridge {
     rom: Rom,
@@ -6,9 +6,14 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn new(rom: Vec<u8>) -> Cartridge {
+    pub fn new(rom: Vec<u8>, backup: Option<Vec<u8>>) -> Cartridge {
         let rom = Rom::from_bytes(&rom).expect("Failed to parse ROM");
-        let sram = vec![0; rom.header.ram_size * 1024];
+        let sram = if let Some(backup) = backup {
+            backup
+        } else {
+            vec![0; rom.header.ram_size * 1024]
+        };
+        // let sram = vec![0; rom.header.ram_size * 1024];
         Cartridge { rom, sram }
     }
 }
@@ -168,6 +173,14 @@ impl Cartridge {
                 }
             }
             _ => unimplemented!(),
+        }
+    }
+
+    pub fn backup(&self) -> Option<Vec<u8>> {
+        if self.sram.is_empty() {
+            None
+        } else {
+            Some(self.sram.clone())
         }
     }
 }

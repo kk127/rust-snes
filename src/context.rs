@@ -22,7 +22,7 @@ pub struct Inner1 {
 
 pub struct Inner2 {
     pub ppu: ppu::Ppu,
-    cartridge: cartridge::Cartridge,
+    pub cartridge: cartridge::Cartridge,
     spc: spc::Spc,
     pub inner: Inner3,
 }
@@ -44,7 +44,7 @@ struct Inner3 {
 // }
 
 impl Context {
-    pub fn new(rom: Vec<u8>) -> Context {
+    pub fn new(rom: Vec<u8>, backup: Option<Vec<u8>>) -> Context {
         let mut ctx = Context {
             cpu: cpu::Cpu::default(),
             inner1: Inner1 {
@@ -52,7 +52,7 @@ impl Context {
                 inner2: Inner2 {
                     ppu: ppu::Ppu::default(),
                     spc: spc::Spc::default(),
-                    cartridge: cartridge::Cartridge::new(rom),
+                    cartridge: cartridge::Cartridge::new(rom, backup),
                     inner: Inner3 {
                         timing: counter::Counter::default(),
                         interrupt: interrupt::Interrupt::default(),

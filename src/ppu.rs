@@ -705,8 +705,8 @@ impl Ppu {
                     // x方向は0x01ずれる
                     tile_index = (tile_index & 0x1F0) | (((tile_index & 0x0F) + tile_x / 8 ) & 0x0F);
                     // y方向は0x10ずれる
-                    tile_index = (((tile_index & 0x1F0) + tile_y / 8 * 0x10) & 0x1F0) | (tile_index & 0x0F);
-                    // tile_index = (tile_index & 0x10F) | (((tile_index & 0xF0) + tile_y / 8 * 0x10) & 0xF0);
+                    // tile_index = (((tile_index & 0x1F0) + tile_y / 8 * 0x10) & 0x1F0) | (tile_index & 0x0F);
+                    tile_index = (tile_index & 0x10F) | (((tile_index & 0xF0) + tile_y / 8 * 0x10) & 0xF0);
 
                     tile_x %= 8;
                     tile_y %= 8;
