@@ -23,7 +23,7 @@ pub struct Inner1 {
 pub struct Inner2 {
     pub ppu: ppu::Ppu,
     pub cartridge: cartridge::Cartridge,
-    spc: spc::Spc,
+    pub spc: spc::Spc,
     pub inner: Inner3,
 }
 struct Inner3 {
@@ -162,8 +162,8 @@ impl Interrupt for Inner1 {
 }
 
 impl Ppu for Inner2 {
-    fn ppu_read(&mut self, addr: u16) -> u8 {
-        self.ppu.read(addr, &mut self.inner)
+    fn ppu_read(&mut self, addr: u16, cpu_open_bus: u8) -> u8 {
+        self.ppu.read(addr, &mut self.inner, cpu_open_bus)
     }
 
     fn ppu_write(&mut self, addr: u16, data: u8) {
@@ -206,10 +206,14 @@ impl Spc for Inner2 {
     fn spc_tick(&mut self) {
         self.spc.tick(&mut self.inner);
     }
+
+    fn clear_audio_buffer(&mut self) {
+        self.spc.clear_audio_buffer();
+    }
 }
 
 impl Cartridge for Inner2 {
-    fn cartridge_read(&mut self, addr: u32) -> u8 {
+    fn cartridge_read(&mut self, addr: u32) -> Option<u8> {
         self.cartridge.read(addr)
     }
 
@@ -402,7 +406,7 @@ pub trait Bus {
 }
 
 pub trait Ppu {
-    fn ppu_read(&mut self, addr: u16) -> u8;
+    fn ppu_read(&mut self, addr: u16, cpu_open_bus: u8) -> u8;
     fn ppu_write(&mut self, addr: u16, data: u8);
 
     fn ppu_tick(&mut self);
@@ -423,7 +427,7 @@ pub trait Timing {
 }
 
 pub trait Cartridge {
-    fn cartridge_read(&mut self, addr: u32) -> u8;
+    fn cartridge_read(&mut self, addr: u32) -> Option<u8>;
     fn cartridge_write(&mut self, addr: u32, data: u8);
 }
 
@@ -446,4 +450,6 @@ pub trait Spc {
     fn spc_read(&mut self, addr: u16) -> u8;
     fn spc_write(&mut self, addr: u16, data: u8);
     fn spc_tick(&mut self);
+
+    fn clear_audio_buffer(&mut self);
 }

@@ -111,11 +111,21 @@ impl Bus {
                     }
                     self.wram[offset as usize]
                 }
+                0x2000..=0x20FF => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    warn!(
+                        "Read unused region (open_bus): bank: {:X}, offset: {:X}",
+                        bank, offset
+                    );
+                    self.open_bus
+                }
                 0x2100..=0x213F => {
                     if !self.is_dma_active {
                         ctx.elapse(CYCLE_FAST);
                     }
-                    ctx.ppu_read(addr as u16)
+                    ctx.ppu_read(addr as u16, self.open_bus)
                 }
                 0x2140..=0x217F => {
                     if !self.is_dma_active {
@@ -134,7 +144,26 @@ impl Bus {
                     self.wram_addr = (self.wram_addr + 1) & 0x1FFFF;
                     data
                 }
-
+                0x2181..=0x3FFF => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    warn!(
+                        "Read unused region (open_bus): bank: {:X}, offset: {:X}",
+                        bank, offset
+                    );
+                    self.open_bus
+                }
+                0x4000..=0x4015 => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    warn!(
+                        "Read unused region (open_bus): bank: {:X}, offset: {:X}",
+                        bank, offset
+                    );
+                    self.open_bus
+                }
                 0x4016 | 0x4017 => {
                     if !self.is_dma_active {
                         ctx.elapse(CYCLE_JOYPAD);
@@ -148,23 +177,36 @@ impl Bus {
                     // let data = b0 as u8 | (b1 as u8) << 1;
 
                     let data = self.controller[index].read();
-                    data
+                    if index == 0 {
+                        self.open_bus & 0xFC | data
+                    } else {
+                        self.open_bus & 0xE0 | 0x1C | data
+                    }
                 }
-
+                0x4018..=0x420F => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    warn!(
+                        "Read unused region (open_bus): bank: {:X}, offset: {:X}",
+                        bank, offset
+                    );
+                    self.open_bus
+                }
                 0x4210 => {
                     if !self.is_dma_active {
                         ctx.elapse(CYCLE_FAST);
                     }
                     let nmi_flag = ctx.get_nmi_flag();
                     let cpu_version = 2;
-                    (nmi_flag as u8) << 7 | cpu_version | self.open_bus
+                    (nmi_flag as u8) << 7 | cpu_version | self.open_bus & 0x70
                 }
 
                 0x4211 => {
                     // TODO open bus
                     let ret = (ctx.irq_occurred() as u8) << 7;
                     ctx.set_irq(false);
-                    ret
+                    ret | self.open_bus & 0x7F
                 }
 
                 0x4212 => {
@@ -175,7 +217,7 @@ impl Bus {
                     ret |= (ctx.now() < self.auto_joypad_read_busy) as u8;
                     ret |= (ctx.is_hblank() as u8) << 6;
                     ret |= (ctx.is_vblank() as u8) << 7;
-                    ret
+                    ret | self.open_bus & 0x3E
                 }
                 0x4213 => {
                     if !self.is_dma_active {
@@ -219,13 +261,31 @@ impl Bus {
                     let pos = (offset as usize - 0x4218) % 2;
                     (self.controller[index % 2].data[index / 2] >> (8 * pos)) as u8
                 }
-
+                0x4220..=0x42FF => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    warn!(
+                        "Read unused region (open_bus): bank: {:X}, offset: {:X}",
+                        bank, offset
+                    );
+                    self.open_bus
+                }
                 0x4300..=0x437F => {
                     let ch = ((offset >> 4) & 0x7) as usize;
                     let index = offset as u8 & 0xF;
                     self.dma_read(ch, index)
                 }
-
+                0x4380..=0x5FFF => {
+                    if !self.is_dma_active {
+                        ctx.elapse(CYCLE_FAST);
+                    }
+                    warn!(
+                        "Read unused region (open_bus): bank: {:X}, offset: {:X}",
+                        bank, offset
+                    );
+                    self.open_bus
+                }
                 0x6000..=0xFFFF => {
                     if !self.is_dma_active {
                         // if (0x80..=0xBF).contains(&bank) {
@@ -240,7 +300,7 @@ impl Bus {
                         }
                     }
 
-                    ctx.cartridge_read(addr)
+                    ctx.cartridge_read(addr).unwrap_or(self.open_bus)
                 }
                 // TODO
                 // _ => unimplemented!("Read unimplemeted, bank: {:x}, offset: {:x}", bank, offset),
@@ -253,7 +313,7 @@ impl Bus {
                 if !self.is_dma_active {
                     ctx.elapse(CYCLE_SLOW);
                 }
-                ctx.cartridge_read(addr)
+                ctx.cartridge_read(addr).unwrap_or(self.open_bus)
             }
             0x7E..=0x7F => {
                 if !self.is_dma_active {
@@ -266,7 +326,7 @@ impl Bus {
                 if !self.is_dma_active {
                     ctx.elapse(self.access_cycle_for_memory2);
                 }
-                ctx.cartridge_read(addr)
+                ctx.cartridge_read(addr).unwrap_or(self.open_bus)
             }
             _ => unimplemented!(),
         };
@@ -275,6 +335,7 @@ impl Bus {
             "Bus read  bank: {:X}, addr: 0x{:X}, data: 0x{:X} ",
             bank, offset, data
         );
+        debug!("Bus cpu_open_bus: 0x{:X}", self.open_bus);
         data
     }
 
@@ -293,9 +354,8 @@ impl Bus {
             0xA => self.dma[ch].hdma_line_counter,
             0xB | 0xF => self.dma[ch].unused,
             0xC..=0xE => {
-                debug!("Invalid DMA offset: {}", offset);
-                // TODO open bus
-                0
+                warn!("Invalid DMA read offset: {}", offset);
+                self.open_bus
             }
             _ => unreachable!(),
         }
@@ -315,6 +375,7 @@ impl Bus {
             "Bus write  bank: {:X}, addr: 0x{:X}, data: 0x{:X} ",
             bank, offset, data
         );
+        debug!("Bus cpu_open_bus: 0x{:X}", self.open_bus);
 
         match bank {
             0x00..=0x3F | 0x80..=0xBF => {
@@ -387,6 +448,9 @@ impl Bus {
                     }
 
                     0x4201 => {
+                        if !self.is_dma_active {
+                            ctx.elapse(CYCLE_FAST);
+                        }
                         debug!("Unimplemented: 0x{:x} = 0x{:x}", addr, data);
                         // self.controller[0].controller_write(6, data & (1 << 6) != 0);
                         // self.controller[1].controller_write(6, data & (1 << 7) != 0);
@@ -866,8 +930,11 @@ impl Dma {
     }
 
     fn hdma_indirect_address(&mut self, inc: u16) -> u32 {
-        let ret = (self.indirect_hdma_bank as u32) << 16 | self.hdma_table_current_address as u32;
-        self.hdma_table_current_address = self.hdma_table_current_address.wrapping_add(inc);
+        // let ret = (self.indirect_hdma_bank as u32) << 16 | self.hdma_table_current_address as u32;
+        // self.hdma_table_current_address = self.hdma_table_current_address.wrapping_add(inc);
+        // ret
+        let ret = (self.indirect_hdma_bank as u32) << 16 | self.number_of_bytes_to_transfer as u32;
+        self.number_of_bytes_to_transfer = self.number_of_bytes_to_transfer.wrapping_add(inc);
         ret
     }
 }

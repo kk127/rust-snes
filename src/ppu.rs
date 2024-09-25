@@ -1,7 +1,7 @@
 use crate::context;
 use modular_bitfield::prelude::*;
 
-use log::{debug, warn};
+use log::{debug,info, warn};
 trait Context: context::Timing + context::Interrupt  {}
 impl<T: context::Timing + context::Interrupt> Context for T {}
 
@@ -40,6 +40,9 @@ pub struct Ppu {
     pub vram: [u8; 0x10000], // 64KB
     cgram: [u16; 0x100], // 512B
     pub oam: [u8; 0x220],    // 544B
+    
+    open_bus1: u8,
+    open_bus2: u8,
 
     // Ppu control registers
     display_control: DisplayCtrl,               // $2100, $2133
@@ -153,6 +156,11 @@ impl Default for Ppu {
             vram: [0; 0x10000],
             cgram: [0; 0x100],
             oam: [0; 0x220],
+
+            open_bus1: 0,
+            open_bus2: 0,
+
+            
             display_control: Default::default(),
             object_size_and_base: Default::default(),
             screen_main_designation: Default::default(),
@@ -202,12 +210,13 @@ impl Default for Ppu {
 
             auto_joypad_read: false,
         }
+        
     }
 }
 
 impl Ppu {
-    pub(crate) fn read(&mut self, addr: u16, ctx: &mut impl Context) -> u8 {
-        match addr {
+    pub(crate) fn read(&mut self, addr: u16, ctx: &mut impl Context, cpu_open_bus: u8) -> u8 {
+        let data = match addr {
             0x2134 => self.mpy as u8,
             0x2135 => (self.mpy >> 8) as u8,
             0x2136 => (self.mpy >> 16) as u8,
@@ -220,8 +229,7 @@ impl Ppu {
                 self.h_counter_latch = self.x;
                 self.v_counter_latch = self.y;
                 self.hv_latched = true;
-                // TODO Return ppu open bus?
-                0
+                cpu_open_bus
             }
             0x2138 => {
                 let ret = if self.oam_addr < 0x200 {
@@ -250,7 +258,7 @@ impl Ppu {
                     cgram_data as u8
                 } else {
                     // TODO 2nd Access: Upper 7 bits (odd address) (upper 1bit = PPU2 open bus)
-                    (cgram_data >> 8) as u8
+                    self.open_bus2 & 0x80 |  (cgram_data >> 8) as u8 & 0x7F  
                 };
                 self.palette_cgram_addr = (self.palette_cgram_addr + 1) & 0x1FF;
                 ret
@@ -261,7 +269,7 @@ impl Ppu {
                     self.h_counter_latch as u8
                 } else {
                     // TODO Check whether to use the open bus value due to reading a value less than 8 bits.
-                    (self.h_counter_latch >> 8) as u8 & 1
+                    self.open_bus2 & 0xFE |  (self.h_counter_latch >> 8) as u8 & 1
                 }
             }
             0x213D => {
@@ -270,7 +278,7 @@ impl Ppu {
                     self.v_counter_latch as u8
                 } else {
                     // TODO Check whether to use the open bus value due to reading a value less than 8 bits.
-                    (self.v_counter_latch >> 8) as u8 & 1
+                    self.open_bus2 &0xFE | (self.v_counter_latch >> 8) as u8 & 1
                 }
             }
             0x213E => {
@@ -281,7 +289,7 @@ impl Ppu {
                 ret |= (self.obj_range_overflow as u8) << 6;
                 ret |= (self.obj_time_overflow as u8) << 7;
                 // TODO Check whether to use the open bus value due to reading a value less than 8 bits.
-                ret
+                ret | self.open_bus1 & 0x10
             }
             0x213F => {
                 // Ppu version = 1;
@@ -292,17 +300,40 @@ impl Ppu {
                 ret |= (self.frame_number as u8 & 1) << 7;
 
                 self.hv_latched = false;
-                // TODO resets the two OPHCT/OPVCT 1st/2nd-read flipflops.
+                self.h_flipflopped = false;
+                self.v_flipflopped = false;
 
-                // TODO check ppu open bus
-                ret
+                ret | self.open_bus2 & 0x20
             }
-            _ => {
-                warn!("Read Ppu write only register, addr: {:x}", addr);
-                // TODO return ppu open bus
-                0
-            }
+
+            0x2104..=0x2106
+            | 0x2108..=0x210A
+            | 0x2114..=0x2116
+            | 0x2118..=0x211A
+            | 0x2124..=0x2126
+            | 0x2128..=0x212A => self.open_bus1,
+
+            0x2100..=0x2103
+            | 0x2107
+            | 0x210B..=0x210F
+            | 0x2110..=0x2113
+            | 0x2117
+            | 0x211B..=0x211F
+            | 0x2120..=0x2123
+            | 0x2127
+            | 0x212B..=0x212F
+            | 0x2130..=0x2133 => cpu_open_bus,
+
+            _ => unreachable!("PPU Read: {addr:04X}"),
+        };
+        match addr {
+            0x2134..=0x2136 | 0x2138..=0x213A | 0x213E => self.open_bus1 = data,
+            0x213B..=0x213D | 0x213F => self.open_bus2 = data,
+            _ => {}
         }
+        debug!("Open_bus1: 0x{:X}", self.open_bus1);
+        debug!("Open_bus2: 0x{:X}", self.open_bus2);
+        data
     }
 
     pub fn write(&mut self, addr: u16, data: u8, ctx: &mut impl Context) {
@@ -547,7 +578,7 @@ impl Ppu {
             }
 
             if self.x == 22 && (1..225).contains(&self.y) {
-                self.render_line(self.y - 1);
+                self.render_line(self.y);
             }
 
             match ctx.get_hv_irq_enable() {
@@ -578,17 +609,24 @@ impl Ppu {
 
     fn render_line(&mut self, y: u16) {
         self.render_bg(y);
-        self.render_obj(y);
-        self.color_math(y);
+        self.render_obj(y-1);
+        self.color_math(y-1);
     }
 
     fn render_bg(&mut self, y: u16) {
         let bg_mode = self.bg_ctrl.bg_mode();
         let bpp_mode = BG_MODE_BPP[bg_mode as usize];
+
+
         for i in 0..FRAME_WIDTH {
             self.main_screen[i] = PixelInfo::new(self.cgram[0], 13, Layer::Backdrop);
             self.sub_screen[i] = PixelInfo::new(self.color_math_sub_screen_backdrop_color.get_bgr(), 13, Layer::Backdrop);
         }
+        if bg_mode == 7 {
+        self.render_bg_mode7(y, 8);
+            return;
+        }
+
         for (bg_index, &bpp) in bpp_mode.iter().enumerate() {
             let tile_size = self.bg_ctrl.get_tile_size(bg_index);
             let tile_base_addr = self.bg_tile_base_addr[bg_index] as usize * 8 * 1024;
@@ -667,6 +705,108 @@ impl Ppu {
             self.vram[map_entry_addr + 1],
         ])
     }
+
+    fn render_bg_mode7(&mut self, y: u16, z: u8) {
+        let x_flip = if self.rotation_scaling_setting.h_flip() { 0xFF } else { 0 };
+        let y_flip = if self.rotation_scaling_setting.v_flip() { 0xFF } else { 0 };
+        let screen_over = self.rotation_scaling_setting.screen_over();
+    
+        const SIGN_MASK_16: i32 = 0x8000;
+        const SIGN_MASK_13: i32 = 0x1000;
+        const MASK_1C00: i32 = 0x1C00;
+        const MASK_3F: i32 = 0x3F;
+        const SHIFT_8: u32 = 8;
+        const SHIFT_11: u32 = 11;
+        const SHIFT_18: u32 = 18;
+        const TILE_SIZE: usize = 128; // タイルのサイズ
+    
+        fn sext(value: u16, mask: i32) -> i32 {
+            let value = value as i32;
+            if value & mask != 0 {
+                value | !mask
+            } else {
+                value
+            }
+        }
+    
+        // 変換行列とオフセットの取得
+        let m7a = sext(self.rotation_scaling_param.a, SIGN_MASK_16);
+        let m7b = sext(self.rotation_scaling_param.b, SIGN_MASK_16);
+        let m7c = sext(self.rotation_scaling_param.c, SIGN_MASK_16);
+        let m7d = sext(self.rotation_scaling_param.d, SIGN_MASK_16);
+        let m7x = sext(self.rotation_scaling_param.x, SIGN_MASK_13);
+        let m7y = sext(self.rotation_scaling_param.y, SIGN_MASK_13);
+        let m7vofs = sext(self.m7_vofs, SIGN_MASK_13);
+        let m7hofs = sext(self.m7_hofs, SIGN_MASK_13);
+    
+        // オリジンの計算
+        let mut orgx = (m7hofs - m7x) & !MASK_1C00;
+        if orgx < 0 {
+            orgx |= MASK_1C00;
+        }
+        let mut orgy = (m7vofs - m7y) & !MASK_1C00;
+        if orgy < 0 {
+            orgy |= MASK_1C00;
+        }
+    
+        // 左端のピクセル座標の計算
+        let mut lx = ((m7a * orgx) & !MASK_3F) + ((m7b * orgy) & !MASK_3F) + m7x * 0x100;
+        let mut ly = ((m7c * orgx) & !MASK_3F) + ((m7d * orgy) & !MASK_3F) + m7y * 0x100;
+        let sy = (y ^ y_flip) as i32;
+        lx += (m7b * sy) & !MASK_3F;
+        ly += (m7d * sy) & !MASK_3F;
+    
+    
+        // 各ピクセルの描画ループ
+        for x in 0..FRAME_WIDTH {
+            // 現在のピクセルのVRAM座標を計算
+            let sx = (x ^ x_flip) as i32;
+            let vx = lx + m7a * sx;
+            let vy = ly + m7c * sx;
+            let ofs_x = ((vx >> SHIFT_8) & 7) as usize;
+            let ofs_y = ((vy >> SHIFT_8) & 7) as usize;
+    
+            // タイル番号の取得
+            let char_num = if (vx >> SHIFT_18 == 0 && vy >> SHIFT_18 == 0) || screen_over <= 1 {
+                // 画面内またはラップアラウンド
+                let tile_x = ((vx >> SHIFT_11) & 0x7F) as usize;
+                let tile_y = ((vy >> SHIFT_11) & 0x7F) as usize;
+                let tile_addr = (tile_x + tile_y * 128) * 2;
+                if tile_addr >= self.vram.len() {
+                    // VRAMの範囲外アクセスを防止
+                    continue;
+                }
+                self.vram[tile_addr] as usize
+            } else if screen_over == 3 {
+                // タイル0x00で塗りつぶす
+                0
+            } else {
+                // 透明
+                continue;
+            };
+    
+            // キャラクターアドレスの計算
+            let char_addr = char_num * 128 + ofs_y * 16 + ofs_x * 2 + 1;
+            if char_addr >= self.vram.len() {
+                // VRAMの範囲外アクセスを防止
+                continue;
+            }
+            let pixel = self.vram[char_addr];
+    
+            // ピクセルの描画
+            if pixel != 0 {
+                let col: u16 = self.cgram.get(pixel as usize).copied().unwrap_or_default();
+                if  self.screen_main_designation.bg1_enable() && z < self.main_screen[x].priority {
+                    self.main_screen[x] = PixelInfo::new(col, z, Layer::BG(1));
+                }
+                if self.screen_sub_designation.bg1_enable() && z < self.sub_screen[x].priority {
+                    self.sub_screen[x] = PixelInfo::new(col, z, Layer::BG(1));
+                }
+            }
+    
+        }
+    }
+
 
     fn render_obj(&mut self, y: u16) {
         let priority_rotation = if self.oam_addr_and_priority_rotation.priority_rotation() {

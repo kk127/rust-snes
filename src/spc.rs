@@ -1,7 +1,8 @@
-use log::debug;
+use log::{debug, warn};
 use modular_bitfield::bitfield;
 
 use crate::context;
+use crate::dsp;
 
 trait Context: context::Timing {}
 impl<T: context::Timing> Context for T {}
@@ -9,9 +10,10 @@ impl<T: context::Timing> Context for T {}
 #[derive(Default)]
 pub struct Spc {
     registers: Registers,
-    io_registers: IORegisters,
+    pub io_registers: IORegisters,
     counter: u64,
     prev_counter: u64,
+    dsp_counter: u64,
 
     sleep: bool,
     stop: bool,
@@ -38,6 +40,20 @@ impl Spc {
         let elapsed = self.counter - self.prev_counter;
         self.prev_counter = self.counter;
         self.io_registers.tick_timer(elapsed);
+
+        self.dsp_counter += elapsed;
+        while self.dsp_counter >= 32 {
+            self.dsp_counter -= 32;
+            self.io_registers.dsp.tick();
+        }
+    }
+
+    pub fn audio_buffer(&self) -> &[(i16, i16)] {
+        self.io_registers.dsp.get_audio_buffer()
+    }
+
+    pub fn clear_audio_buffer(&mut self) {
+        self.io_registers.dsp.clear_audio_buffer();
     }
 
     pub fn write_port(&mut self, port: u16, data: u8) {
@@ -378,15 +394,27 @@ impl Spc {
     fn write_8(&mut self, addr: WrapAddr, data: u8) {
         let addr = addr.addr;
         // debug!("SPC Write: {addr:#06X} = {data:#04X}");
-        match addr {
-            0x0000..=0x00EF | 0x0100..=0xFFFF => {
-                self.counter += self.io_registers.waitstate_on_ram_access;
-                self.io_registers.dsp.ram[addr as usize] = data;
-            }
-            0x00F0..=0x00FF => {
-                self.counter += self.io_registers.waitstate_on_io_and_rom_access;
-                self.io_registers.write((addr - 0xF0) as u8, data);
-            }
+        // match addr {
+        //     0x0000..=0x00EF | 0x0100..=0xFFFF => {
+        //         self.counter += self.io_registers.waitstate_on_ram_access;
+        //         warn!("Dsp ram write: {:#06X} = {:#X}", addr, data);
+        //         self.io_registers.dsp.ram[addr as usize] = data;
+        //     }
+        //     0x00F0..=0x00FF => {
+        //         self.counter += self.io_registers.waitstate_on_io_and_rom_access;
+        //         self.io_registers.write((addr - 0xF0) as u8, data);
+        //     }
+        // }
+
+        if self.io_registers.ram_write_enable {
+            warn!("Dsp ram write: {:#06X} = {:#X}", addr, data);
+            self.io_registers.dsp.ram[addr as usize] = data;
+        }
+        if addr & 0xFFF0 == 0x00F0 {
+            self.io_registers.write((addr & 0xF) as u8, data);
+            self.counter += self.io_registers.waitstate_on_io_and_rom_access;
+        } else {
+            self.counter += self.io_registers.waitstate_on_ram_access;
         }
     }
 
@@ -1594,9 +1622,10 @@ struct IORegisters {
     cpu_in: [u8; 4],
     cpu_out: [u8; 4],
     is_rom_read_enabled: bool,
+    ram_write_enable: bool,
 
     dsp_addr: u8, // 0x00..=0x7F (0x80..=0xFF is mirror)
-    dsp: Dsp,
+    pub dsp: dsp::Dsp,
     external_io_port: [u8; 2],
     timer: [Timer; 3],
     timer_counter_01: u64,
@@ -1611,9 +1640,10 @@ impl Default for IORegisters {
             cpu_in: [0; 4],
             cpu_out: [0; 4],
             is_rom_read_enabled: true,
+            ram_write_enable: true,
 
             dsp_addr: 0,
-            dsp: Dsp::default(),
+            dsp: dsp::Dsp::default(),
             external_io_port: [0; 2],
             timer: [Timer::default(); 3],
             timer_counter_01: 0,
@@ -1649,6 +1679,7 @@ impl IORegisters {
                 // 2    Crash SPC700     (0=Normal, 1=Crashes the CPU)
                 // 3    Timer-Disable    (0=Timers don't work, 1=Normal)
                 const CYCLE: [u64; 4] = [1, 2, 5, 10];
+                self.ram_write_enable = data & 2 != 0;
                 self.waitstate_on_ram_access = CYCLE[((data >> 4) & 0b11) as usize];
                 self.waitstate_on_io_and_rom_access = CYCLE[((data >> 6) & 0b11) as usize];
             }
@@ -1750,30 +1781,5 @@ impl Timer {
                 self.output = (self.output + 1) & 0xF;
             }
         }
-    }
-}
-
-struct Dsp {
-    ram: [u8; 0x10000],   // 64KB
-    register: [u8; 0x80], // 128B
-}
-
-impl Default for Dsp {
-    fn default() -> Self {
-        Dsp {
-            ram: [0; 0x10000],
-            register: [0; 0x80],
-        }
-    }
-}
-
-impl Dsp {
-    fn read(&self, addr: u8) -> u8 {
-        self.register[addr as usize]
-    }
-
-    fn write(&mut self, addr: u8, data: u8) {
-        let index = (addr & 0x7F) as usize;
-        self.register[index] = data;
     }
 }

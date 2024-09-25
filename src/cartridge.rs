@@ -19,36 +19,64 @@ impl Cartridge {
 }
 
 impl Cartridge {
-    pub fn read(&self, addr: u32) -> u8 {
+    pub fn read(&self, addr: u32) -> Option<u8> {
         match self.rom.header.map_mode {
             MapMode::LoRom => {
                 let bank = (addr >> 16) as usize;
                 let offset = (addr & 0xFFFF) as usize;
                 match bank {
                     0x00..=0x7D => self.read(addr + 0x800000),
-                    0x7E..=0x7F => unreachable!(),
+                    0x7E..=0x7F => {
+                        warn!(
+                            "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                            bank, offset
+                        );
+                        None
+                    }
                     0x80..=0xFF => match offset {
                         0x0000..=0x7FFF => match bank {
                             0x80..=0xBF => {
-                                unreachable!("Invalid bank: {:02X}, offset: {:04X}", bank, offset);
+                                warn!(
+                                    "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                                    bank, offset
+                                );
+                                None
                             }
                             0xC0..=0xEF => self.read(addr + 0x8000),
                             0xF0..=0xFF => {
                                 let sram_offset = (bank - 0xF0) * 1024 * 32 + offset;
                                 let sram_index = sram_offset % self.sram.len();
-                                self.sram[sram_index]
+                                Some(self.sram[sram_index])
                             }
-                            _ => unreachable!(),
+                            _ => {
+                                warn!(
+                                    "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                                    bank, offset
+                                );
+                                None
+                            }
                         },
                         0x8000..=0xFFFF => {
                             let rom_offset = (bank - 0x80) * 1024 * 32 + (offset - 0x8000);
                             let rom_index = rom_offset % self.rom.rom.len();
-                            self.rom.rom[rom_index]
+                            Some(self.rom.rom[rom_index])
                         }
-                        _ => unreachable!(),
+                        _ => {
+                            warn!(
+                                "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                                bank, offset
+                            );
+                            None
+                        }
                     },
 
-                    _ => unreachable!(),
+                    _ => {
+                        warn!(
+                            "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                            bank, offset
+                        );
+                        None
+                    }
                 }
             }
             MapMode::HiRom => {
@@ -56,43 +84,76 @@ impl Cartridge {
                 let offset = (addr & 0xFFFF) as usize;
                 match bank {
                     0x00..=0x3F => match offset {
-                        0x0000..=0x5FFF => unreachable!(),
+                        0x0000..=0x5FFF => {
+                            warn!(
+                                "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                                bank, offset
+                            );
+                            None
+                        }
                         0x6000..=0x7FFF => {
                             let sram_offset = bank * 1024 * 8 + (offset - 0x6000);
                             let sram_index = sram_offset % self.sram.len();
-                            self.sram[sram_index]
+                            Some(self.sram[sram_index])
                         }
                         0x8000..=0xFFFF => {
                             let rom_index = (addr as usize) % self.rom.rom.len();
-                            self.rom.rom[rom_index]
+                            Some(self.rom.rom[rom_index])
                         }
-                        _ => unreachable!(),
+                        _ => {
+                            warn!(
+                                "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                                bank, offset
+                            );
+                            None
+                        }
                     },
                     0x40..=0x7D => {
                         let rom_index = (addr as usize - 0x400000) % self.rom.rom.len();
-                        self.rom.rom[rom_index]
+                        Some(self.rom.rom[rom_index])
                     }
                     0x80..=0xBF => match offset {
-                        0x0000..=0x5FFF => unreachable!(),
+                        0x0000..=0x5FFF => {
+                            warn!(
+                                "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                                bank, offset
+                            );
+                            None
+                        }
                         0x6000..=0x7FFF => {
                             let sram_offset = (bank - 0x80) * 1024 * 8 + (offset - 0x6000);
                             let sram_index = sram_offset % self.sram.len();
-                            self.sram[sram_index]
+                            Some(self.sram[sram_index])
                         }
                         0x8000..=0xFFFF => {
                             let rom_index = (addr as usize - 0x800000) % self.rom.rom.len();
-                            self.rom.rom[rom_index]
+                            Some(self.rom.rom[rom_index])
                         }
-                        _ => unreachable!(),
+                        _ => {
+                            warn!(
+                                "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                                bank, offset
+                            );
+                            None
+                        }
                     },
                     0xC0..=0xFF => {
                         let rom_index = (addr as usize - 0xC00000) % self.rom.rom.len();
-                        self.rom.rom[rom_index]
+                        Some(self.rom.rom[rom_index])
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        warn!(
+                            "Reading from invalid reagion bank: {:02X}, offset: {:04X}",
+                            bank, offset
+                        );
+                        None
+                    }
                 }
             }
-            _ => unimplemented!(),
+            _ => {
+                warn!("Unsupported map mode: {:?}", self.rom.header.map_mode);
+                None
+            }
         }
     }
 
@@ -135,9 +196,9 @@ impl Cartridge {
                     0x00..=0x3F => match offset {
                         0x0000..=0x5FFF => unreachable!(),
                         0x6000..=0x7FFF => {
-                            // if self.sram.is_empty() {
-                            //     return;
-                            // }
+                            if self.sram.is_empty() {
+                                return;
+                            }
                             let sram_offset = bank * 1024 * 8 + (offset - 0x6000);
                             let sram_index = sram_offset % self.sram.len();
                             self.sram[sram_index] = data;

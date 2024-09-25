@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use dirs::data_dir;
 use log::info;
 use rust_snes::{Key, Snes};
+use sdl2::audio;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
@@ -71,6 +72,25 @@ fn main() -> Result<()> {
         .set_logical_size(256, 224)
         .context("Failed to set logical size")?;
 
+    let audio_subsystem = sdl2_context
+        .audio()
+        .map_err(|e| anyhow::anyhow!(e))
+        .context("Failed to initialize SDL2 audio subsystem")?;
+    let desired_spec = sdl2::audio::AudioSpecDesired {
+        freq: Some(32_000),
+        channels: Some(2),
+        samples: Some(1024),
+    };
+    let audio_queue = audio_subsystem
+        .open_queue::<i16, _>(None, &desired_spec)
+        .map_err(|e| anyhow::anyhow!(e))
+        .context("Failed to open audio queue")?;
+    audio_queue
+        .queue_audio(&vec![0i16; 2048])
+        .map_err(|e| anyhow::anyhow!(e))
+        .context("Failed to queue audio")?;
+    audio_queue.resume();
+
     // GameControllerのサブシステムを取得
     let game_controller_subsystem = sdl2_context
         .game_controller()
@@ -100,8 +120,8 @@ fn main() -> Result<()> {
         }
     }
 
-    // コントローラーが見つからなければエラー
-    let controller = controller.context("No game controller found!")?;
+    // コントローラーが見つからなければ、logに残す
+    // let controller = controller.context("No game controller found!")?;
 
     let mut event_pump = sdl2_context
         .event_pump()
@@ -179,6 +199,23 @@ fn main() -> Result<()> {
 
         // 描画をウィンドウに反映
         canvas.present();
+
+        let audio_buffer = snes.context.inner1.inner2.spc.audio_buffer();
+        // println!("audio_buffer len: {:?}", audio_buffer.len());
+        while audio_queue.size() > 1024 * 4 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // while audio_queue.size() > 1024 as u32 * 4 {
+        //     std::thread::sleep(Duration::from_millis(1));
+        // }
+        audio_queue
+            .queue_audio(
+                &audio_buffer
+                    .iter()
+                    .flat_map(|s| [s.0, s.1])
+                    .collect::<Vec<i16>>(),
+            )
+            .unwrap();
 
         // 16ms待機して約60FPSを維持
         let elapsed = start_time.elapsed();

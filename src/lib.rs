@@ -7,6 +7,7 @@ mod context;
 mod controller;
 mod counter;
 mod cpu;
+mod dsp;
 mod interrupt;
 mod ppu;
 mod spc;
@@ -34,6 +35,7 @@ impl Snes {
 
     pub fn exec_frame(&mut self) {
         let frame = self.context.inner1.inner2.ppu.frame_number;
+        self.context.inner1.inner2.clear_audio_buffer();
         while frame == self.context.inner1.inner2.ppu.frame_number {
             self.context.exce_one();
             self.context.inner1.inner2.ppu_tick();

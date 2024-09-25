@@ -1,6 +1,6 @@
 use crate::context;
 
-use log::debug;
+use log::{debug, info};
 trait Context: context::Bus + context::Timing + context::Interrupt {}
 impl<T: context::Bus + context::Timing + context::Interrupt> Context for T {}
 
@@ -567,6 +567,7 @@ impl Cpu {
             }
             AddressingMode::DirectX => {
                 let offset = self.fetch_8(ctx) as u16;
+                ctx.elapse(CPU_CYCLE);
                 if self.d & 0xFF != 0 {
                     ctx.elapse(CPU_CYCLE);
                 }
