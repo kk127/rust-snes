@@ -86,7 +86,7 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!(e))
         .context("Failed to open audio queue")?;
     audio_queue
-        .queue_audio(&vec![0i16; 2048])
+        .queue_audio(&vec![0i16; 1024])
         .map_err(|e| anyhow::anyhow!(e))
         .context("Failed to queue audio")?;
     audio_queue.resume();
@@ -165,6 +165,44 @@ fn main() -> Result<()> {
                     sdl2::controller::Button::RightShoulder => keys[0].retain(|&k| k != Key::R),
                     _ => {}
                 },
+                // キーボードのキー押下処理を追加
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    ..
+                } => match keycode {
+                    sdl2::keyboard::Keycode::Up => keys[0].push(Key::Up),
+                    sdl2::keyboard::Keycode::Down => keys[0].push(Key::Down),
+                    sdl2::keyboard::Keycode::Left => keys[0].push(Key::Left),
+                    sdl2::keyboard::Keycode::Right => keys[0].push(Key::Right),
+                    sdl2::keyboard::Keycode::X => keys[0].push(Key::A),
+                    sdl2::keyboard::Keycode::Z => keys[0].push(Key::B),
+                    sdl2::keyboard::Keycode::S => keys[0].push(Key::X),
+                    sdl2::keyboard::Keycode::A => keys[0].push(Key::Y),
+                    sdl2::keyboard::Keycode::Q => keys[0].push(Key::L),
+                    sdl2::keyboard::Keycode::W => keys[0].push(Key::R),
+                    sdl2::keyboard::Keycode::Return => keys[0].push(Key::Start),
+                    sdl2::keyboard::Keycode::LShift => keys[0].push(Key::Select),
+                    _ => {}
+                },
+                // キーボードのキー離上げ処理を追加
+                Event::KeyUp {
+                    keycode: Some(keycode),
+                    ..
+                } => match keycode {
+                    sdl2::keyboard::Keycode::Up => keys[0].retain(|&k| k != Key::Up),
+                    sdl2::keyboard::Keycode::Down => keys[0].retain(|&k| k != Key::Down),
+                    sdl2::keyboard::Keycode::Left => keys[0].retain(|&k| k != Key::Left),
+                    sdl2::keyboard::Keycode::Right => keys[0].retain(|&k| k != Key::Right),
+                    sdl2::keyboard::Keycode::X => keys[0].retain(|&k| k != Key::A),
+                    sdl2::keyboard::Keycode::Z => keys[0].retain(|&k| k != Key::B),
+                    sdl2::keyboard::Keycode::S => keys[0].retain(|&k| k != Key::X),
+                    sdl2::keyboard::Keycode::A => keys[0].retain(|&k| k != Key::Y),
+                    sdl2::keyboard::Keycode::Q => keys[0].retain(|&k| k != Key::L),
+                    sdl2::keyboard::Keycode::W => keys[0].retain(|&k| k != Key::R),
+                    sdl2::keyboard::Keycode::Return => keys[0].retain(|&k| k != Key::Start),
+                    sdl2::keyboard::Keycode::LShift => keys[0].retain(|&k| k != Key::Select),
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -205,9 +243,6 @@ fn main() -> Result<()> {
         while audio_queue.size() > 1024 * 4 {
             std::thread::sleep(Duration::from_millis(1));
         }
-        // while audio_queue.size() > 1024 as u32 * 4 {
-        //     std::thread::sleep(Duration::from_millis(1));
-        // }
         audio_queue
             .queue_audio(
                 &audio_buffer

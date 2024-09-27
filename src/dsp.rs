@@ -1,4 +1,4 @@
-use log::warn;
+use log::debug;
 use modular_bitfield::bitfield;
 use modular_bitfield::prelude::*;
 
@@ -22,6 +22,10 @@ pub struct Dsp {
     sample_table_address: u8, // 0x5D
     echo_buffer_address: u8,  // 0x6D
     echo_buffer_size: u8,     // 0x7D
+    echo_buffer_index: usize,
+    echo_remain: u16,
+    fir_buffer: [[i16; 2]; 8],
+    fir_buffer_index: usize,
 
     noise: Noise,
 
@@ -41,39 +45,96 @@ impl Dsp {
         }
 
         let mut output = [0; 2];
+        let echo_addr =
+            (self.echo_buffer_address as usize * 0x100 + self.echo_buffer_index * 4) & 0xFFFC;
+        self.fir_buffer[self.fir_buffer_index] = [
+            i16::from_le_bytes(self.ram[echo_addr..echo_addr + 2].try_into().unwrap()) >> 1,
+            i16::from_le_bytes(self.ram[echo_addr + 2..echo_addr + 4].try_into().unwrap()) >> 1,
+        ];
 
-        for i in 0..2 {
-            let mut normal_voice = 0i32;
+        for (i, output) in output.iter_mut().enumerate() {
+            let normal_voice = self.get_normal_voice(i);
+            let echo_voice = self.get_echo_voice(i);
+            let fir_out = self.get_fir_out(i);
 
-            // let mut ch_volume = [0; 8];
-            for ch in 0..8 {
-                let sample = ((self.voice[ch].voice_params.sample << 1) as i32) >> 1;
-                let c = (sample * self.voice[ch].voice_params.volume[i] as i32) >> 6;
-                // ch_volume[ch] = c;
-                normal_voice = (normal_voice + c).clamp(-0x8000, 0x7FFF);
-                // if self.voice[ch].voice_status.enable_echo {
-                //     let echo = ((sample * self.voice[ch].voice_params.volume[i] as i32) >> 6) >> 1;
-                //     output[i] += echo;
-                // }
-            }
-            // for ch in 0..8 {
-            //     print!("{:06}  ", ch_volume[ch]);
-            // }
-            // println!();
+            let audio_output = (normal_voice + ((fir_out * self.echo_volume[i] as i32) >> 7))
+                .clamp(-0x8000, 0x7FFF) as i16;
 
-            normal_voice =
-                ((normal_voice * self.master_volume[i] as i32) >> 7).clamp(-0x8000, 0x7FFF);
+            self.write_echo_feedback_to_buffer(i, echo_voice, fir_out);
 
-            output[i] = if self.flag.enable_mute() {
-                0
+            *output = if self.flag.enable_mute() {
+                !0
             } else {
-                normal_voice as i16
+                !audio_output
             };
-
-            output[i] = !output[i];
         }
+        self.update_echo_and_fir_indices();
 
         self.audio_buffer.push((output[0], output[1]));
+    }
+
+    fn get_normal_voice(&self, i: usize) -> i32 {
+        let mut normal_voice = 0i32;
+        for ch in 0..8 {
+            let sample = ((self.voice[ch].voice_params.sample << 1) as i32) >> 1;
+            let c = (sample * self.voice[ch].voice_params.volume[i] as i32) >> 6;
+            normal_voice = (normal_voice + c).clamp(-0x8000, 0x7FFF);
+        }
+        ((normal_voice * self.master_volume[i] as i32) >> 7).clamp(-0x8000, 0x7FFF)
+    }
+
+    fn get_echo_voice(&self, i: usize) -> i32 {
+        let mut echo_voice = 0i32;
+        for ch in 0..8 {
+            let sample = ((self.voice[ch].voice_params.sample << 1) as i32) >> 1;
+            let c = (sample * self.voice[ch].voice_params.volume[i] as i32) >> 6;
+            if self.voice[ch].voice_status.enable_echo {
+                echo_voice = (echo_voice + c).clamp(-0x8000, 0x7FFF);
+            }
+        }
+        echo_voice
+    }
+
+    fn get_fir_out(&self, i: usize) -> i32 {
+        let mut fir_out = 0i16;
+        for offset in 0..8 {
+            let f = self.fir_buffer[(self.fir_buffer_index + 1 + offset) & 7][i] as i32;
+            let f = (f * self.voice[offset].voice_params.fir_coefficient as i32) >> 6;
+            if offset == 7 {
+                fir_out = fir_out.saturating_add(f as i16);
+            } else {
+                fir_out = fir_out.wrapping_add(f as i16);
+            }
+        }
+        fir_out as i32
+    }
+
+    fn write_echo_feedback_to_buffer(&mut self, i: usize, echo_voice: i32, fir_out: i32) {
+        if self.flag.disable_echo_buffer_write() {
+            return;
+        }
+
+        let echo_addr =
+            (self.echo_buffer_address as usize * 0x100 + self.echo_buffer_index * 4) & 0xFFFC;
+        let echo_input = ((echo_voice + ((fir_out * self.echo_feedback_volume as i32) >> 7))
+            .clamp(-0x8000, 0x7FFF)
+            & 0xFFFE) as i16;
+        self.ram[echo_addr + i * 2..echo_addr + i * 2 + 2]
+            .copy_from_slice(&echo_input.to_le_bytes());
+    }
+
+    fn update_echo_and_fir_indices(&mut self) {
+        self.fir_buffer_index = (self.fir_buffer_index + 1) & 7;
+        self.echo_buffer_index = self.echo_buffer_index.wrapping_add(1);
+
+        self.echo_remain = self.echo_remain.saturating_sub(4);
+        if self.echo_remain == 0 {
+            self.echo_remain = match self.echo_buffer_size & 0xF {
+                0 => 4,
+                n => (n as u16) << 11,
+            };
+            self.echo_buffer_index = 0;
+        }
     }
 
     pub fn clear_audio_buffer(&mut self) {
@@ -118,6 +179,10 @@ impl Default for Dsp {
             sample_table_address: 0,
             echo_buffer_address: 0,
             echo_buffer_size: 0,
+            echo_remain: 0,
+            echo_buffer_index: 0,
+            fir_buffer: [[0; 2]; 8],
+            fir_buffer_index: 0,
 
             noise: Default::default(),
 
@@ -332,26 +397,13 @@ impl Voice {
         } else {
             u16::from_le_bytes(ram[table_address..table_address + 2].try_into().unwrap())
         };
-        warn!(
+        debug!(
             "Start BRR decode: entry = {table_address:04X}, addr = {:04X}",
             self.brr.address,
         );
     }
 
     fn load_next_brr(&mut self, ram: &[u8], sample_table_address: u8) {
-        // if self.brr_block.header.end() {
-        //     if self.brr_block.header.repeat() {
-        //         self.set_brr_address(ram, sample_table_address, true);
-        //         self.decode_brr(ram);
-        //     } else {
-        //         self.envelopes.state = EnvelopeState::Release;
-        //         self.envelopes.envelope = 0;
-        //         self.set_brr_address(ram, sample_table_address, true);
-        //         self.decode_brr(ram);
-        //     }
-        // } else {
-        //     self.decode_brr(ram);
-        // }
         if !self.brr_block.header.end() {
             self.decode_brr(ram);
         } else if self.brr_block.header.repeat() {
@@ -366,16 +418,14 @@ impl Voice {
     }
 
     fn decode_brr(&mut self, ram: &[u8]) {
-        // warn!("Decode BRR block: {:04X}", self.brr.address);
-        warn!(
+        debug!(
             "Decode BRR block: {:04X}, data = {:0X}",
             self.brr.address, ram[self.brr.address as usize]
         );
         let header = BrrBlockHeader::from_bytes([ram[self.brr.address as usize]]);
-        // let header = BrrBlockHeader::from_bytes([ram[self.brr_cur_addr as usize]]);
         self.brr.address = self.brr.address.wrapping_add(1);
 
-        warn!(
+        debug!(
             "BRR header: end = {}, repeat = {}, filter = {}, shift = {}",
             header.end(),
             header.repeat(),
@@ -417,7 +467,6 @@ impl Voice {
             self.voice_params.old = new;
             data[i] = new;
         }
-        warn!("Brr data: {:?}", data);
         self.brr_block = BrrBlock { header, data };
         self.voice_params.push_sample(data[0]);
     }

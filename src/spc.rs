@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::debug;
 use modular_bitfield::bitfield;
 
 use crate::context;
@@ -387,27 +387,15 @@ impl Spc {
                 }
             }
         };
-        // debug!("SPC Read:  {addr:#06X} = {data:#04X}");
+        debug!("SPC Read:  {addr:#06X} = {data:#04X}");
         data
     }
 
     fn write_8(&mut self, addr: WrapAddr, data: u8) {
         let addr = addr.addr;
-        // debug!("SPC Write: {addr:#06X} = {data:#04X}");
-        // match addr {
-        //     0x0000..=0x00EF | 0x0100..=0xFFFF => {
-        //         self.counter += self.io_registers.waitstate_on_ram_access;
-        //         warn!("Dsp ram write: {:#06X} = {:#X}", addr, data);
-        //         self.io_registers.dsp.ram[addr as usize] = data;
-        //     }
-        //     0x00F0..=0x00FF => {
-        //         self.counter += self.io_registers.waitstate_on_io_and_rom_access;
-        //         self.io_registers.write((addr - 0xF0) as u8, data);
-        //     }
-        // }
 
         if self.io_registers.ram_write_enable {
-            warn!("Dsp ram write: {:#06X} = {:#X}", addr, data);
+            // debug!("Dsp ram write: {:#06X} = {:#X}", addr, data);
             self.io_registers.dsp.ram[addr as usize] = data;
         }
         if addr & 0xFFF0 == 0x00F0 {
@@ -1506,8 +1494,11 @@ enum Register {
     A,
     X,
     Y,
+    #[allow(dead_code)]
     Psw,
+    #[allow(dead_code)]
     Sp,
+    #[allow(dead_code)]
     Pc,
 }
 
@@ -1608,8 +1599,10 @@ impl Default for Registers {
 struct Psw {
     c: bool,
     z: bool,
+    #[allow(dead_code)]
     i: bool,
     h: bool,
+    #[allow(dead_code)]
     b: bool,
     p: bool,
     v: bool,
@@ -1660,9 +1653,10 @@ impl IORegisters {
             3 => self.dsp.read(self.dsp_addr),
             4..=7 => {
                 let port = index - 4;
-                let data = self.cpu_in[port as usize];
+                self.cpu_in[port as usize]
+                // let data = self.cpu_in[port as usize];
                 // debug!("CPUIO {port} -> {data:#04X} ");
-                data
+                // data
             }
             8 | 9 => self.external_io_port[(index - 8) as usize],
             0xD..=0xF => self.timer[(index - 0xD) as usize].output(),
@@ -1702,9 +1696,9 @@ impl IORegisters {
             // 3 => self.dsp.ram[self.dsp_addr as usize] = data,
             3 => self.dsp.write(self.dsp_addr, data),
             4..=7 => {
-                let port = index - 4;
+                let port = (index - 4) as usize;
                 // debug!("CPUIO {port} <- {data:#04X}");
-                self.cpu_out[(index - 4) as usize] = data;
+                self.cpu_out[port] = data;
             }
             8 | 9 => self.external_io_port[(index - 8) as usize] = data,
             0xA..=0xC => self.timer[(index - 0xA) as usize].set_divider(data),
