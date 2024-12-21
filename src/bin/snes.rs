@@ -13,16 +13,6 @@ use std::time::Duration;
 fn main() -> Result<()> {
     env_logger::init();
 
-    // let rom_path = std::env::args()
-    //     .nth(1)
-    //     .context("Usage: --bin snes -- <path-to-rom>")?;
-    // let rom = std::fs::read(&rom_path).context("Failed to read ROM file")?;
-    // // rom_nameを取得。ただし、拡張子を除く
-    // let binding = PathBuf::from(&rom_path);
-    // let rom_name = binding
-    //     .file_stem()
-    //     .and_then(|s| s.to_str())
-    //     .context("Failed to get the file name")?;
     // コマンドライン引数を取得
     let rom_arg = std::env::args()
         .nth(1)
@@ -55,6 +45,7 @@ fn main() -> Result<()> {
 
     // ウィンドウサイズを512x448に変更
     let window = video_subsystem
+        // .window("スーパーファミコン", 256 * 3, 224 * 3)
         .window("rust-snes", 256 * 3, 224 * 3)
         .position_centered()
         .resizable()
@@ -253,10 +244,10 @@ fn main() -> Result<()> {
             .unwrap();
 
         // 16ms待機して約60FPSを維持
-        let elapsed = start_time.elapsed();
-        if elapsed < Duration::from_millis(16) {
-            std::thread::sleep(Duration::from_millis(16) - elapsed);
-        }
+        // let elapsed = start_time.elapsed();
+        // if elapsed < Duration::from_millis(16) {
+        //     std::thread::sleep(Duration::from_millis(16) - elapsed);
+        // }
 
         frame += 1;
         // セーブデータを保存
